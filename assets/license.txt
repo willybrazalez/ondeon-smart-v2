@@ -1,0 +1,70 @@
+ACUERDO DE LICENCIA DE USUARIO FINAL (EULA)
+
+Software: Ondeon Smart
+Titular: Ondeon Grupo, S.L.
+Correo de contacto: comunicacion@ondeon.es
+
+IMPORTANTE: Lea atentamente este acuerdo antes de instalar o utilizar el software Ondeon Smart.
+La instalacion, copia o uso del programa implica la aceptacion total de los terminos aqui establecidos.
+Si no esta de acuerdo con ellos, cancele la instalacion y elimine cualquier copia de este software de su sistema.
+
+--------------------------------------------------------------------
+
+1. Titularidad y propiedad intelectual
+
+El software Ondeon Smart, incluyendo su codigo fuente, diseno, estructura, documentacion, logotipos, nombres comerciales y demas elementos asociados, es propiedad exclusiva de Ondeon Grupo, S.L., con todos los derechos reservados.
+Este programa esta protegido por las leyes nacionales e internacionales de propiedad intelectual e industrial.
+La titularidad de todos los derechos sobre este software y su contenido corresponde a Ondeon Grupo, S.L.
+
+--------------------------------------------------------------------
+
+2. Concesion de licencia
+
+Ondeon Grupo, S.L. concede al usuario una licencia no exclusiva, intransferible, limitada y revocable para instalar y utilizar Ondeon Smart conforme a los terminos de este acuerdo.
+No se concede ningun derecho de propiedad sobre el software, sino unicamente un derecho de uso condicionado a la aceptacion de este acuerdo.
+
+--------------------------------------------------------------------
+
+3. Restricciones de uso
+
+El usuario se compromete a no:
+a) Copiar, modificar, traducir, descompilar, realizar ingenieria inversa ni crear obras derivadas del software.
+b) Alquilar, arrendar, sublicenciar o distribuir el software o cualquiera de sus componentes a terceros.
+c) Utilizar el software con fines ilicitos o contrarios a las leyes vigentes.
+d) Eliminar, modificar o alterar avisos de derechos de autor, marcas registradas u otros avisos de propiedad incluidos en el software o su documentacion.
+
+--------------------------------------------------------------------
+
+4. Actualizaciones, mantenimiento y soporte
+
+Ondeon Grupo, S.L. podra, a su discrecion, proporcionar actualizaciones, mejoras o nuevas versiones del software.
+Estas estaran sujetas a los mismos terminos de licencia, salvo que se indique lo contrario.
+Para consultas, incidencias o asistencia tecnica, puede contactar al correo oficial: comunicacion@ondeon.es.
+
+--------------------------------------------------------------------
+
+5. Limitacion de responsabilidad
+
+Ondeon Grupo, S.L. no garantiza que el software este libre de errores ni que su funcionamiento sea ininterrumpido.
+En ningun caso sera responsable de danos directos, indirectos, incidentales o consecuenciales derivados del uso o la imposibilidad de uso del software, incluyendo -sin limitacion- la perdida de datos o interrupciones en el servicio.
+El usuario acepta que utiliza el software bajo su propia responsabilidad.
+
+--------------------------------------------------------------------
+
+6. Terminacion
+
+La licencia se considerara automaticamente terminada si el usuario incumple cualquiera de las condiciones de este acuerdo.
+En tal caso, debera desinstalar y eliminar todas las copias del software de sus dispositivos y cesar de inmediato cualquier uso del mismo.
+
+--------------------------------------------------------------------
+
+7. Legislacion aplicable y jurisdiccion
+
+Este acuerdo se regira e interpretara de conformidad con las leyes de Espana.
+Cualquier controversia derivada de su interpretacion, cumplimiento o ejecucion sera sometida a los juzgados y tribunales competentes del domicilio social de Ondeon Grupo, S.L.
+
+--------------------------------------------------------------------
+
+(C) Ondeon Grupo, S.L. - Todos los derechos reservados.
+Desarrollo y propiedad intelectual: Ondeon Grupo, S.L.
+Correo de contacto: comunicacion@ondeon.es

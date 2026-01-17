@@ -1,0 +1,108 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "confirm": "Confirm",
+    "back": "Back",
+    "next": "Next",
+    "previous": "Previous",
+    "search": "Search",
+    "filter": "Filter",
+    "actions": "Actions",
+    "unknownChannel": "Unknown Channel",
+    "user": "User"
+  },
+  "nav": {
+    "player": "Player",
+    "channels": "Channels",
+    "content": "Content",
+    "history": "History",
+    "support": "Support",
+    "createAd": "Create Ad",
+    "settings": "Settings",
+    "logout": "Logout",
+    "dashboard": "Admin Dashboard"
+  },
+  "player": {
+    "loading": "Loading...",
+    "previousChannel": "Previous channel",
+    "nextChannel": "Next channel",
+    "content": "Content",
+    "scheduledContentPlaying": "Scheduled content playing",
+    "manualPlayback": "Manual playback",
+    "musicVolume": "Music volume",
+    "contentVolume": "Content volume",
+    "mute": "Mute",
+    "unmute": "Restore volume",
+    "lockedDuringManual": "Locked during manual playback"
+  },
+  "auth": {
+    "login": "Sign In",
+    "signIn": "Sign In",
+    "signingIn": "Signing in...",
+    "register": "Register",
+    "email": "Email or username",
+    "password": "Password",
+    "showPassword": "Show",
+    "hidePassword": "Hide",
+    "forgotPassword": "Forgot your password?",
+    "noAccount": "Don't have an account?",
+    "rememberCredentials": "Remember credentials and start automatically",
+    "continueWithGoogle": "Continue with Google",
+    "continueWithApple": "Continue with Apple",
+    "invalidCredentials": "Incorrect email or password.",
+    "emailNotConfirmed": "Please confirm your email before signing in.",
+    "loginError": "Sign in error",
+    "googleError": "Google error",
+    "appleError": "Apple error"
+  },
+  "password": {
+    "changePassword": "Change Password",
+    "recoverPassword": "Recover Password",
+    "currentPassword": "Current Password",
+    "newPassword": "New Password",
+    "confirmPassword": "Confirm New Password",
+    "email": "Email",
+    "username": "Username",
+    "forgotCurrentPassword": "I forgot my current password",
+    "passwordRecoveryInstructions": "We will send you an email with instructions to reset your password",
+    "enterCurrentPassword": "Enter your username and current password to change it",
+    "detectingUserType": "Detecting user type...",
+    "passwordMinLength": "Password must be at least 6 characters",
+    "passwordsDoNotMatch": "New passwords do not match",
+    "passwordMustBeDifferent": "New password must be different from current one",
+    "passwordChanged": "Password updated successfully",
+    "recoveryEmailSent": "An email with instructions to reset your password has been sent. Check your inbox.",
+    "sending": "Sending...",
+    "changing": "Changing...",
+    "sendEmail": "Send Email",
+    "changePasswordButton": "Change Password",
+    "skipPasswordWarning": "Warning: Changing password without verifying the current one is less secure. Only use it if you really forgot your password.",
+    "legacyUserInfo": "Legacy User: If you forget your password, you can check the checkbox. If you have problems, contact an administrator.",
+    "supabaseUserInfo": "Supabase Auth User: An email with a link to reset your password will be sent. Check your inbox and spam."
+  },
+  "channels": {
+    "title": "Channels",
+    "selectChannel": "Select Channel",
+    "noChannels": "No channels available",
+    "loadingChannels": "Loading channels...",
+    "channelError": "Error loading channels"
+  },
+  "footer": {
+    "version": "Ondeon Smart"
+  },
+  "language": {
+    "selectLanguage": "Select language",
+    "spanish": "Spanish",
+    "english": "English",
+    "french": "French",
+    "german": "German"
+  }
+}
+

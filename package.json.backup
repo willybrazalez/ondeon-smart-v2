@@ -1,0 +1,187 @@
+{
+  "name": "ondeon-smart",
+  "type": "module",
+  "version": "0.0.20",
+  "description": "Reproductor de audio profesional - Ondeon SMART",
+  "author": "Ondeon Grupo SL",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "vite preview",
+    "test": "echo \"No tests specified\" && exit 0",
+    "check-deploy": "node scripts/check-deploy.cjs",
+    "electron:dev": "concurrently \"npm run dev\" \"cross-env NODE_ENV=development electron .\"",
+    "electron:build": "npx cross-env IS_ELECTRON=true npm run build && electron-builder --win --publish=never",
+    "electron:build:win": "npx cross-env IS_ELECTRON=true npm run build && electron-builder --win --publish=never",
+    "electron:build:mac": "npx cross-env IS_ELECTRON=true npm run build && electron-builder --mac --publish=never",
+    "electron:build:mac:unsigned": "npx cross-env IS_ELECTRON=true CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && electron-builder --mac --publish=never",
+    "electron:build:all": "npx cross-env IS_ELECTRON=true npm run build && electron-builder --win --mac --publish=never",
+    "electron:preview": "electron .",
+    "release": "node scripts/release.cjs",
+    "release:patch": "node scripts/release.cjs patch",
+    "release:minor": "node scripts/release.cjs minor",
+    "release:major": "node scripts/release.cjs major",
+    "notarize": "node scripts/notarize.cjs"
+  },
+  "dependencies": {
+    "@emotion/is-prop-valid": "^1.2.1",
+    "@radix-ui/react-alert-dialog": "^1.0.5",
+    "@radix-ui/react-avatar": "^1.0.3",
+    "@radix-ui/react-checkbox": "^1.0.4",
+    "@radix-ui/react-dialog": "^1.0.5",
+    "@radix-ui/react-dropdown-menu": "^2.0.5",
+    "@radix-ui/react-label": "^2.0.2",
+    "@radix-ui/react-select": "^2.0.0",
+    "@radix-ui/react-slider": "^1.1.2",
+    "@radix-ui/react-slot": "^1.0.2",
+    "@radix-ui/react-tabs": "^1.0.4",
+    "@radix-ui/react-toast": "^1.1.5",
+    "@react-google-maps/api": "^2.20.7",
+    "@react-three/drei": "^9.88.0",
+    "@react-three/fiber": "^8.15.12",
+    "@supabase/supabase-js": "^2.51.0",
+    "axios": "^1.9.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.0.0",
+    "electron-log": "^5.4.3",
+    "electron-updater": "^6.6.2",
+    "framer-motion": "^10.16.4",
+    "lucide-react": "^0.292.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-icons": "^5.5.0",
+    "react-router-dom": "^6.16.0",
+    "tailwind-merge": "^1.14.0",
+    "tailwindcss-animate": "^1.0.7",
+    "three": "^0.158.0"
+  },
+  "devDependencies": {
+    "@electron/notarize": "^3.1.0",
+    "@electron/osx-sign": "^2.2.0",
+    "@types/node": "^20.8.3",
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react": "^4.0.3",
+    "autoprefixer": "^10.4.16",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^36.3.2",
+    "electron-builder": "^26.0.12",
+    "electron-reload": "^2.0.0-alpha.1",
+    "eslint": "^8.57.1",
+    "eslint-config-react-app": "^7.0.1",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.3.3",
+    "terser": "^5.39.0",
+    "vite": "^4.4.5"
+  },
+  "build": {
+    "appId": "com.ondeon.smart",
+    "productName": "Ondeon-Smart",
+    "publish": {
+      "provider": "github",
+      "owner": "ondeon",
+      "repo": "ondeon-smart-releases"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icono-ondeon-256x256.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Ondeon-Smart",
+      "include": "scripts/installer.nsh",
+      "license": "assets/license.txt",
+      "deleteAppDataOnUninstall": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "runAfterFinish": true,
+      "uninstallDisplayName": "Ondeon-Smart"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icono-ondeon.icns",
+      "category": "public.app-category.music",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "type": "distribution",
+      "identity": "4B930682DF655FB17E7755F466223B8979D9F6F1",
+      "publish": {
+        "provider": "github",
+        "owner": "ondeon",
+        "repo": "ondeon-smart-releases"
+      }
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "title": "Ondeon Smart ${version}",
+      "window": {
+        "width": 540,
+        "height": 400
+      }
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "!electron/preload.cjs.map"
+    ],
+    "asarUnpack": [
+      "dist/**/*"
+    ],
+    "directories": {
+      "buildResources": "assets",
+      "output": "release"
+    }
+  }
+}

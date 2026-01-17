@@ -1,0 +1,108 @@
+{
+  "common": {
+    "loading": "Cargando...",
+    "error": "Error",
+    "success": "Éxito",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "close": "Cerrar",
+    "confirm": "Confirmar",
+    "back": "Volver",
+    "next": "Siguiente",
+    "previous": "Anterior",
+    "search": "Buscar",
+    "filter": "Filtrar",
+    "actions": "Acciones",
+    "unknownChannel": "Canal Desconocido",
+    "user": "Usuario"
+  },
+  "nav": {
+    "player": "Reproductor",
+    "channels": "Canales",
+    "content": "Contenidos",
+    "history": "Historial",
+    "support": "Soporte",
+    "createAd": "Crear Anuncio",
+    "settings": "Ajustes",
+    "logout": "Salir",
+    "dashboard": "Dashboard Admin"
+  },
+  "player": {
+    "loading": "Cargando...",
+    "previousChannel": "Canal anterior",
+    "nextChannel": "Siguiente canal",
+    "content": "Contenido",
+    "scheduledContentPlaying": "Contenido programado en reproducción",
+    "manualPlayback": "Reproducción manual",
+    "musicVolume": "Volumen música",
+    "contentVolume": "Volumen contenidos",
+    "mute": "Silenciar",
+    "unmute": "Restaurar volumen",
+    "lockedDuringManual": "Bloqueado durante reproducción manual"
+  },
+  "auth": {
+    "login": "Iniciar Sesión",
+    "signIn": "Iniciar Sesión",
+    "signingIn": "Iniciando...",
+    "register": "Registrarse",
+    "email": "Correo o usuario",
+    "password": "Contraseña",
+    "showPassword": "Mostrar",
+    "hidePassword": "Ocultar",
+    "forgotPassword": "¿Olvidaste tu contraseña?",
+    "noAccount": "¿No tienes una cuenta?",
+    "rememberCredentials": "Recordar credenciales e iniciar automáticamente",
+    "continueWithGoogle": "Continuar con Google",
+    "continueWithApple": "Continuar con Apple",
+    "invalidCredentials": "Correo o contraseña incorrectos.",
+    "emailNotConfirmed": "Por favor, confirma tu correo electrónico antes de iniciar sesión.",
+    "loginError": "Error al iniciar sesión",
+    "googleError": "Error con Google",
+    "appleError": "Error con Apple"
+  },
+  "password": {
+    "changePassword": "Cambiar Contraseña",
+    "recoverPassword": "Recuperar Contraseña",
+    "currentPassword": "Contraseña Actual",
+    "newPassword": "Nueva Contraseña",
+    "confirmPassword": "Confirmar Nueva Contraseña",
+    "email": "Email",
+    "username": "Usuario",
+    "forgotCurrentPassword": "Olvidé mi contraseña actual",
+    "passwordRecoveryInstructions": "Te enviaremos un email con instrucciones para restablecer tu contraseña",
+    "enterCurrentPassword": "Ingresa tu usuario y contraseña actual para cambiarla",
+    "detectingUserType": "Detectando tipo de usuario...",
+    "passwordMinLength": "La contraseña debe tener al menos 6 caracteres",
+    "passwordsDoNotMatch": "Las contraseñas nuevas no coinciden",
+    "passwordMustBeDifferent": "La nueva contraseña debe ser diferente a la actual",
+    "passwordChanged": "Contraseña actualizada exitosamente",
+    "recoveryEmailSent": "Se ha enviado un email con instrucciones para restablecer tu contraseña. Revisa tu bandeja de entrada.",
+    "sending": "Enviando...",
+    "changing": "Cambiando...",
+    "sendEmail": "Enviar Email",
+    "changePasswordButton": "Cambiar Contraseña",
+    "skipPasswordWarning": "Advertencia: Cambiar la contraseña sin verificar la actual es menos seguro. Solo úsalo si realmente olvidaste tu contraseña.",
+    "legacyUserInfo": "Usuario Legacy: Si olvidas tu contraseña, puedes marcarlo en el checkbox. Si tienes problemas, contacta a un administrador.",
+    "supabaseUserInfo": "Usuario Supabase Auth: Se enviará un email con un enlace para restablecer tu contraseña. Revisa tu bandeja de entrada y spam."
+  },
+  "channels": {
+    "title": "Canales",
+    "selectChannel": "Seleccionar Canal",
+    "noChannels": "No hay canales disponibles",
+    "loadingChannels": "Cargando canales...",
+    "channelError": "Error al cargar canales"
+  },
+  "footer": {
+    "version": "Ondeon Smart"
+  },
+  "language": {
+    "selectLanguage": "Seleccionar idioma",
+    "spanish": "Español",
+    "english": "Inglés",
+    "french": "Francés",
+    "german": "Alemán"
+  }
+}
+

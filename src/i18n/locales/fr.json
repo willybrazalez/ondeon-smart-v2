@@ -1,0 +1,108 @@
+{
+  "common": {
+    "loading": "Chargement...",
+    "error": "Erreur",
+    "success": "Succès",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "close": "Fermer",
+    "confirm": "Confirmer",
+    "back": "Retour",
+    "next": "Suivant",
+    "previous": "Précédent",
+    "search": "Rechercher",
+    "filter": "Filtrer",
+    "actions": "Actions",
+    "unknownChannel": "Chaîne inconnue",
+    "user": "Utilisateur"
+  },
+  "nav": {
+    "player": "Lecteur",
+    "channels": "Chaînes",
+    "content": "Contenu",
+    "history": "Historique",
+    "support": "Support",
+    "createAd": "Créer une annonce",
+    "settings": "Paramètres",
+    "logout": "Déconnexion",
+    "dashboard": "Tableau de bord Admin"
+  },
+  "player": {
+    "loading": "Chargement...",
+    "previousChannel": "Chaîne précédente",
+    "nextChannel": "Chaîne suivante",
+    "content": "Contenu",
+    "scheduledContentPlaying": "Contenu programmé en lecture",
+    "manualPlayback": "Lecture manuelle",
+    "musicVolume": "Volume musique",
+    "contentVolume": "Volume contenu",
+    "mute": "Couper le son",
+    "unmute": "Rétablir le volume",
+    "lockedDuringManual": "Verrouillé pendant la lecture manuelle"
+  },
+  "auth": {
+    "login": "Se connecter",
+    "signIn": "Se connecter",
+    "signingIn": "Connexion...",
+    "register": "S'inscrire",
+    "email": "Email ou nom d'utilisateur",
+    "password": "Mot de passe",
+    "showPassword": "Afficher",
+    "hidePassword": "Masquer",
+    "forgotPassword": "Mot de passe oublié ?",
+    "noAccount": "Vous n'avez pas de compte ?",
+    "rememberCredentials": "Mémoriser les identifiants et démarrer automatiquement",
+    "continueWithGoogle": "Continuer avec Google",
+    "continueWithApple": "Continuer avec Apple",
+    "invalidCredentials": "Email ou mot de passe incorrect.",
+    "emailNotConfirmed": "Veuillez confirmer votre email avant de vous connecter.",
+    "loginError": "Erreur de connexion",
+    "googleError": "Erreur Google",
+    "appleError": "Erreur Apple"
+  },
+  "password": {
+    "changePassword": "Changer le mot de passe",
+    "recoverPassword": "Récupérer le mot de passe",
+    "currentPassword": "Mot de passe actuel",
+    "newPassword": "Nouveau mot de passe",
+    "confirmPassword": "Confirmer le nouveau mot de passe",
+    "email": "Email",
+    "username": "Nom d'utilisateur",
+    "forgotCurrentPassword": "J'ai oublié mon mot de passe actuel",
+    "passwordRecoveryInstructions": "Nous vous enverrons un email avec les instructions pour réinitialiser votre mot de passe",
+    "enterCurrentPassword": "Entrez votre nom d'utilisateur et votre mot de passe actuel pour le changer",
+    "detectingUserType": "Détection du type d'utilisateur...",
+    "passwordMinLength": "Le mot de passe doit contenir au moins 6 caractères",
+    "passwordsDoNotMatch": "Les nouveaux mots de passe ne correspondent pas",
+    "passwordMustBeDifferent": "Le nouveau mot de passe doit être différent de l'actuel",
+    "passwordChanged": "Mot de passe mis à jour avec succès",
+    "recoveryEmailSent": "Un email avec les instructions pour réinitialiser votre mot de passe a été envoyé. Vérifiez votre boîte de réception.",
+    "sending": "Envoi...",
+    "changing": "Changement...",
+    "sendEmail": "Envoyer l'email",
+    "changePasswordButton": "Changer le mot de passe",
+    "skipPasswordWarning": "Avertissement : Changer le mot de passe sans vérifier l'actuel est moins sécurisé. Utilisez-le uniquement si vous avez vraiment oublié votre mot de passe.",
+    "legacyUserInfo": "Utilisateur Legacy : Si vous oubliez votre mot de passe, vous pouvez cocher la case. Si vous avez des problèmes, contactez un administrateur.",
+    "supabaseUserInfo": "Utilisateur Supabase Auth : Un email avec un lien pour réinitialiser votre mot de passe sera envoyé. Vérifiez votre boîte de réception et les spams."
+  },
+  "channels": {
+    "title": "Chaînes",
+    "selectChannel": "Sélectionner une chaîne",
+    "noChannels": "Aucune chaîne disponible",
+    "loadingChannels": "Chargement des chaînes...",
+    "channelError": "Erreur lors du chargement des chaînes"
+  },
+  "footer": {
+    "version": "Ondeon Smart"
+  },
+  "language": {
+    "selectLanguage": "Sélectionner la langue",
+    "spanish": "Espagnol",
+    "english": "Anglais",
+    "french": "Français",
+    "german": "Allemand"
+  }
+}
+

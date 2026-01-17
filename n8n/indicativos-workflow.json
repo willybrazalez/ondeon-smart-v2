@@ -1,0 +1,287 @@
+{
+  "name": "Indicativos Automáticos - Ondeon",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "indicativos",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "indicativos-webhook"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, message: 'Procesando indicativos' }) }}"
+      },
+      "id": "response-ok",
+      "name": "Responder OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM contenidos WHERE id IN (\n  SELECT unnest(contenido_ids) \n  FROM indicativos_generados \n  WHERE usuario_id = '{{ $json.body.usuario_id }}'\n);\n\nDELETE FROM indicativos_generados WHERE usuario_id = '{{ $json.body.usuario_id }}';\n\nSELECT 'deleted' as status;",
+        "options": {}
+      },
+      "id": "borrar-antiguos",
+      "name": "Borrar Indicativos Antiguos",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "SUPABASE_POSTGRES_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Crear 3 items, uno por cada texto de indicativo\nconst establecimiento = $input.first().json.body.establecimiento;\nconst usuario_id = $input.first().json.body.usuario_id;\n\nconst textos = [\n  `Estás escuchando la radio de ${establecimiento}`,\n  `${establecimiento}, Radio`,\n  `Bienvenido a ${establecimiento}, radio`\n];\n\nreturn textos.map((texto, index) => ({\n  json: {\n    texto,\n    index,\n    usuario_id,\n    establecimiento\n  }\n}));"
+      },
+      "id": "crear-items-textos",
+      "name": "Crear Items de Textos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.elevenlabs.io/v1/text-to-speech/{{ $env.ELEVENLABS_VOICE_ID }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.texto, model_id: 'eleven_multilingual_v2', voice_settings: { stability: 0.76, similarity_boost: 0.50, style: 0.47, use_speaker_boost: true } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "elevenlabs-tts",
+      "name": "ElevenLabs TTS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1050, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ELEVENLABS_CRED_ID",
+          "name": "ElevenLabs API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LAMBDA_FFMPEG_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ttsBase64: $binary.data.data, backgroundMusicKey: 'indicativos/musica/fondo-' + (Math.floor(Math.random() * 3) + 1) + '.mp3', outputKey: 'indicativos/' + $json.usuario_id + '/indicativo-' + ($json.index + 1) + '.mp3', ttsVolume: 1.0, musicVolume: 0.2 }) }}",
+        "options": {}
+      },
+      "id": "lambda-ffmpeg",
+      "name": "Lambda FFmpeg Mixer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO contenidos (\n  nombre,\n  tipo_contenido,\n  url_s3,\n  s3_key,\n  duracion_segundos,\n  formato_audio,\n  activo,\n  created_by\n) VALUES (\n  'Indicativo - {{ $json.establecimiento }} - #{{ $json.index + 1 }}',\n  'indicativo',\n  '{{ $json.outputUrl }}',\n  '{{ $json.outputKey }}',\n  {{ $json.duration || 5 }},\n  'mp3',\n  true,\n  (SELECT auth_user_id FROM usuarios WHERE id = '{{ $json.usuario_id }}')\n) RETURNING id;",
+        "options": {}
+      },
+      "id": "guardar-contenido",
+      "name": "Guardar en Contenidos",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "SUPABASE_POSTGRES_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-last",
+              "leftValue": "={{ $json.index }}",
+              "rightValue": "2",
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "check-ultimo",
+      "name": "Es el Ultimo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Crear programación para los indicativos\nWITH nueva_prog AS (\n  INSERT INTO programaciones (\n    descripcion,\n    tipo,\n    frecuencia_minutos,\n    modo_audio,\n    estado,\n    fecha_inicio,\n    created_by\n  ) VALUES (\n    'Indicativos Automáticos - {{ $json.establecimiento }}',\n    'diaria',\n    30,\n    'fade_out',\n    'activo',\n    CURRENT_DATE,\n    (SELECT auth_user_id FROM usuarios WHERE id = '{{ $json.usuario_id }}')\n  ) RETURNING id\n),\n-- Obtener los IDs de contenidos creados\ncontenidos_ids AS (\n  SELECT id, ROW_NUMBER() OVER (ORDER BY created_at DESC) as rn\n  FROM contenidos\n  WHERE tipo_contenido = 'indicativo'\n  AND created_by = (SELECT auth_user_id FROM usuarios WHERE id = '{{ $json.usuario_id }}')\n  ORDER BY created_at DESC\n  LIMIT 3\n),\n-- Asociar contenidos a la programación\ncontenidos_insertados AS (\n  INSERT INTO programacion_contenidos (programacion_id, contenido_id, orden, activo)\n  SELECT \n    (SELECT id FROM nueva_prog),\n    c.id,\n    c.rn,\n    true\n  FROM contenidos_ids c\n  RETURNING programacion_id\n),\n-- CRÍTICO: Asignar programación al usuario (sin esto no verá los indicativos)\ndestinatario_insertado AS (\n  INSERT INTO programacion_destinatarios (programacion_id, tipo, usuario_id, activo)\n  VALUES (\n    (SELECT id FROM nueva_prog),\n    'usuario',\n    '{{ $json.usuario_id }}',\n    true\n  )\n  RETURNING programacion_id\n)\n-- Registrar en tracking\nINSERT INTO indicativos_generados (\n  usuario_id,\n  establecimiento_nombre,\n  contenido_ids,\n  programacion_id,\n  estado\n) \nSELECT\n  '{{ $json.usuario_id }}',\n  '{{ $json.establecimiento }}',\n  ARRAY(SELECT id FROM contenidos WHERE tipo_contenido = 'indicativo' AND created_by = (SELECT auth_user_id FROM usuarios WHERE id = '{{ $json.usuario_id }}') ORDER BY created_at DESC LIMIT 3),\n  (SELECT id FROM nueva_prog),\n  'completado';",
+        "options": {}
+      },
+      "id": "crear-programacion",
+      "name": "Crear Programación",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1850, 200],
+      "credentials": {
+        "postgres": {
+          "id": "SUPABASE_POSTGRES_ID",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "noop-continue",
+      "name": "No Hacer Nada",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1850, 400]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Responder OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder OK": {
+      "main": [
+        [
+          {
+            "node": "Borrar Indicativos Antiguos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Borrar Indicativos Antiguos": {
+      "main": [
+        [
+          {
+            "node": "Crear Items de Textos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crear Items de Textos": {
+      "main": [
+        [
+          {
+            "node": "ElevenLabs TTS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ElevenLabs TTS": {
+      "main": [
+        [
+          {
+            "node": "Lambda FFmpeg Mixer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lambda FFmpeg Mixer": {
+      "main": [
+        [
+          {
+            "node": "Guardar en Contenidos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar en Contenidos": {
+      "main": [
+        [
+          {
+            "node": "Es el Ultimo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Es el Ultimo?": {
+      "main": [
+        [
+          {
+            "node": "Crear Programación",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Hacer Nada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-16T17:30:00.000Z",
+  "versionId": "2"
+}

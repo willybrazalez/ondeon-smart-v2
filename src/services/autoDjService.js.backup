@@ -1,0 +1,2434 @@
+import { playlistsApi, songsApi } from '../lib/api.js';
+import { supabase } from '../lib/supabase.js';
+import audioPlayer from './audioPlayerService.js';
+
+/**
+ * AutoDJ Service - Sistema completo de reproducción automática para Ondeón
+ * 
+ * Funcionalidades principales:
+ * - Maneja 2 tipos de playlist: rotación, intervalo
+ * - Sistema de prioridades: intervalos disparados > rotación
+ * - Selección ponderada por peso para rotaciones
+ * - Contador global para intervalos
+ * - Manejo de franjas horarias
+ * - Retorno automático después de interrupciones
+ */
+class AutoDjService {
+  constructor() {
+    // Estado del canal
+    this.currentChannel = null;
+    this.isActive = false;
+    
+    // Playlists cargadas por tipo
+    this.rotationPlaylists = [];
+    this.intervalPlaylists = [];
+    this.scheduledPlaylists = [];
+    
+    // Estado de reproducción actual
+    this.currentPlaylist = null;
+    this.currentSong = null;
+    this.currentSongIndex = 0;
+    this.playQueue = [];
+    
+    // Contadores
+    this.globalRotationCounter = 0; // Deprecated: mantenido para compatibilidad de logs
+
+    // Contadores por playlist de intervalo y cola de ejecución
+    this.intervalCounters = new Map();
+    this.pendingIntervalQueue = [];
+    
+    // Estado de interrupciones
+    this.isInInterrupt = false;
+    this.interruptType = null; // 'interval' | 'scheduled'
+    this.previousRotationState = null;
+    
+    // 🔧 NUEVO: Cache para evitar logs repetitivos
+    this.timeFrameCache = {};
+    
+    // 🔧 NUEVO: Sistema de debouncing para evitar cambios excesivos de canción
+    this.lastSongChangeTime = 0;
+    this.minSongChangeInterval = 5000; // Mínimo 5 segundos entre cambios
+    
+    // 🔧 NUEVO: Flag para evitar ejecución múltiple de playlists agendadas
+    this.executedScheduledPlaylists = new Set(); // Set de playlists ya ejecutadas hoy
+    
+    // Timers para verificaciones automáticas
+    this.schedulingTimer = null;
+    this.clockTimer = null;
+    
+    // Protección contra bucles infinitos
+    this.lastErrorTime = 0;
+    this.errorCount = 0;
+    this.maxErrors = 5;
+    this.errorResetTime = 10000; // 10 segundos
+    this.isInErrorState = false;
+    this.requiresUserInteraction = false;
+    
+    // 🔧 SISTEMA HÍBRIDO: Control de precarga inteligente
+    this.userHasStartedPlaying = false; // Solo precargar después de primera interacción
+    this.smartPreloadEnabled = false;   // Activar precarga automática tras primer play
+    
+    // Configuración
+    this.config = {
+      schedulingCheckInterval: 300000, // Verificar cada 5 minutos (en lugar de 30 segundos)
+      clockCheckInterval: 1000, // Verificar reloj cada segundo
+      maxHistorySize: 100
+    };
+
+    // Control de precarga
+    this.lastPreloadAttempt = 0;
+    this.preloadErrorCount = 0;
+    
+    // 🔧 NUEVO: Flag de protección contra ejecuciones concurrentes
+    this.isHandlingSongEnd = false;
+
+    // 🔧 NUEVO: Sistema de sincronización en tiempo real con Supabase
+    this.realtimeSubscriptions = new Map(); // Mapa de suscripciones por tabla
+    this.lastSyncTime = Date.now();
+    this.syncInterval = 300000; // Sincronizar cada 5 minutos como respaldo (menos agresivo)
+    this.syncTimer = null;
+
+    // 🔧 NUEVO: Sistema para evitar repetición de canciones
+    this.recentlyPlayedSongs = []; // Historial de canciones recientes
+    this.maxRecentSongs = 20; // Máximo número de canciones a recordar
+    this.avoidRepetitionPercentage = 0.3; // Evitar repetir el 30% de las canciones más recientes
+
+    // Configurar eventos del reproductor de audio
+    this.setupAudioEvents();
+
+    // console.log('🎵 AutoDJ Service (Ondeón) inicializado con sistema híbrido');
+  }
+
+  /**
+   * 🔧 NUEVO: Agregar canción al historial para evitar repeticiones
+   */
+  addSongToHistory(song) {
+    if (!song) return;
+    
+    const songId = song?.canciones?.id || song?.id;
+    const songTitle = song?.canciones?.titulo || song?.titulo;
+    
+    if (!songId) return;
+    
+    // Agregar al inicio del array
+    this.recentlyPlayedSongs.unshift({
+      id: songId,
+      title: songTitle,
+      timestamp: Date.now()
+    });
+    
+    // Mantener solo las canciones más recientes
+    if (this.recentlyPlayedSongs.length > this.maxRecentSongs) {
+      this.recentlyPlayedSongs = this.recentlyPlayedSongs.slice(0, this.maxRecentSongs);
+    }
+    
+    console.log('📝 Canción agregada al historial:', {
+      title: songTitle,
+      historySize: this.recentlyPlayedSongs.length
+    });
+  }
+
+  /**
+   * 🔧 NUEVO: Verificar si una canción fue reproducida recientemente
+   */
+  wasSongRecentlyPlayed(song) {
+    if (!song || this.recentlyPlayedSongs.length === 0) return false;
+    
+    const songId = song?.canciones?.id || song?.id;
+    if (!songId) return false;
+    
+    // Calcular cuántas canciones del historial debemos evitar
+    const songsToAvoid = Math.floor(this.recentlyPlayedSongs.length * this.avoidRepetitionPercentage);
+    const recentSongsToCheck = this.recentlyPlayedSongs.slice(0, songsToAvoid);
+    
+    return recentSongsToCheck.some(recentSong => recentSong.id === songId);
+  }
+
+  /**
+   * 🔧 NUEVO: Filtrar canciones para evitar repeticiones recientes
+   */
+  filterRecentlyPlayedSongs(songs) {
+    if (!Array.isArray(songs) || songs.length === 0) return songs;
+    
+    const availableSongs = songs.filter(song => !this.wasSongRecentlyPlayed(song));
+    
+    // Si todas las canciones fueron reproducidas recientemente, permitir cualquiera
+    // (esto evita que se quede sin opciones en playlists pequeñas)
+    if (availableSongs.length === 0) {
+      console.log('⚠️ Todas las canciones fueron reproducidas recientemente, permitiendo repetición');
+      return songs;
+    }
+    
+    console.log('🚫 Canciones filtradas por repetición:', {
+      totalSongs: songs.length,
+      availableSongs: availableSongs.length,
+      filteredOut: songs.length - availableSongs.length
+    });
+    
+    return availableSongs;
+  }
+
+  /**
+   * 🔧 NUEVO: Configurar sincronización en tiempo real con Supabase
+   */
+  setupRealtimeSync() {
+    if (!this.currentChannel) {
+      console.log('⚠️ No hay canal activo para sincronización en tiempo real');
+      return;
+    }
+
+    console.log('🔄 Configurando sincronización en tiempo real para canal:', this.currentChannel.id);
+
+    // Limpiar suscripciones anteriores
+    this.cleanupRealtimeSubscriptions();
+
+    // Suscribirse a cambios en playlists del canal actual
+    const playlistSubscription = supabase
+      .channel(`playlists-${this.currentChannel.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'playlists',
+          filter: `canal_id=eq.${this.currentChannel.id}`
+        },
+        (payload) => {
+          console.log('🔄 Cambio detectado en playlists:', payload);
+          this.handlePlaylistChange(payload);
+        }
+      )
+      .subscribe();
+
+    // Suscribirse a cambios en canciones del canal actual
+    const songsSubscription = supabase
+      .channel(`songs-${this.currentChannel.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'canciones',
+          filter: `canal_id=eq.${this.currentChannel.id}`
+        },
+        (payload) => {
+          console.log('🔄 Cambio detectado en canciones:', payload);
+          this.handleSongChange(payload);
+        }
+      )
+      .subscribe();
+
+    // Guardar referencias a las suscripciones
+    this.realtimeSubscriptions.set('playlists', playlistSubscription);
+    this.realtimeSubscriptions.set('songs', songsSubscription);
+
+    // Timer de respaldo para sincronización periódica
+    this.syncTimer = setInterval(() => {
+      this.forceSync();
+    }, this.syncInterval);
+
+    console.log('✅ Sincronización en tiempo real configurada');
+  }
+
+  /**
+   * 🔧 NUEVO: Limpiar suscripciones en tiempo real
+   */
+  cleanupRealtimeSubscriptions() {
+    console.log('🧹 Limpiando suscripciones en tiempo real...');
+    
+    this.realtimeSubscriptions.forEach((subscription, key) => {
+      if (subscription) {
+        supabase.removeChannel(subscription);
+        console.log(`🗑️ Suscripción ${key} eliminada`);
+      }
+    });
+    
+    this.realtimeSubscriptions.clear();
+
+    if (this.syncTimer) {
+      clearInterval(this.syncTimer);
+      this.syncTimer = null;
+    }
+  }
+
+  /**
+   * 🔧 NUEVO: Manejar cambios en playlists
+   */
+  async handlePlaylistChange(payload) {
+    const { eventType, new: newRecord, old: oldRecord } = payload;
+    
+    console.log(`🔄 Playlist ${eventType}:`, {
+      eventType,
+      playlistId: newRecord?.id || oldRecord?.id,
+      playlistName: newRecord?.nombre || oldRecord?.nombre
+    });
+
+    // Aplicar cambios inmediatamente (realtime): recargar y recalcular estado
+    // Si estamos en una interrupción, igualmente actualizamos el estado en memoria
+    void this.reloadPlaylists();
+  }
+
+  /**
+   * 🔧 NUEVO: Manejar cambios en canciones
+   */
+  async handleSongChange(payload) {
+    const { eventType, new: newRecord, old: oldRecord } = payload;
+    
+    console.log(`🔄 Canción ${eventType}:`, {
+      eventType,
+      songId: newRecord?.id || oldRecord?.id,
+      songTitle: newRecord?.titulo || oldRecord?.titulo
+    });
+
+    // Si la canción actual fue modificada, recargar
+    // Solo si no estamos en una interrupción
+    if (this.currentSong && !this.isInInterrupt &&
+        (newRecord?.id === this.currentSong.id || oldRecord?.id === this.currentSong.id)) {
+      console.log('🔄 Canción actual modificada - recargando...');
+      setTimeout(async () => {
+        await this.reloadPlaylists();
+      }, 3000); // 3 segundos para evitar recargas excesivas
+    }
+  }
+
+  /**
+   * 🔧 NUEVO: Recargar playlists desde la base de datos
+   */
+  async reloadPlaylists() {
+    if (!this.currentChannel) {
+      console.log('⚠️ No hay canal activo para recargar playlists');
+      return;
+    }
+
+    console.log('🔄 Recargando playlists desde Supabase...');
+    
+    // 🔧 CORREGIDO: Limpiar cache de timeframes al recargar
+    this.timeFrameCache = {};
+    
+    try {
+      // Recargar playlists del canal
+      await this.loadChannelPlaylists();
+      
+      // Reconstruir contadores y limpiar cola según nuevas playlists/horarios
+      this.rebuildIntervalCounters();
+      // Reconfigurar contadores de intervalos para playlists actuales
+      this.rebuildIntervalCounters();
+      
+      // Actualizar timestamp de última sincronización
+      this.lastSyncTime = Date.now();
+      
+      console.log('✅ Playlists recargadas exitosamente');
+      
+      // Si hay una canción cargada, verificar si sigue siendo válida
+      // Solo validar si no estamos en una interrupción para evitar conflictos
+      if (this.currentSong && !this.isInInterrupt) {
+        try {
+          const isValid = await this.validateCurrentSong();
+          if (!isValid) {
+            console.log('⚠️ Canción actual ya no es válida - seleccionando nueva...');
+            await this.selectNextSong();
+          }
+        } catch (error) {
+          console.warn('⚠️ Error en validación de canción actual (ignorando):', error.message);
+          // No forzar selección de nueva canción si hay error en validación
+        }
+      }
+      
+      // Aplicar efectos inmediatos de franjas horarias activadas/desactivadas
+      this.applyImmediateTimeFrameEffects();
+    } catch (error) {
+      console.error('❌ Error al recargar playlists:', error);
+    }
+  }
+
+  /**
+   * 🔧 NUEVO: Validar si la canción actual sigue siendo válida
+   */
+  async validateCurrentSong() {
+    if (!this.currentSong || !this.currentPlaylist) {
+      return false;
+    }
+
+    try {
+      // Verificar si la playlist actual sigue activa
+      const playlist = this.rotationPlaylists
+        .concat(this.intervalPlaylists)
+        .find(p => p.id === this.currentPlaylist.id);
+
+      if (!playlist || !playlist.activa) {
+        console.log('⚠️ Playlist actual ya no está activa');
+        return false;
+      }
+
+      // Verificar si la canción sigue en la playlist
+      const songs = await songsApi.getPlaylistSongs(this.currentPlaylist.id);
+      const songExists = songs.some(song => song.id === this.currentSong.id);
+      
+      if (!songExists) {
+        console.log('⚠️ Canción actual ya no está en la playlist');
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('❌ Error al validar canción actual:', error);
+      // En caso de error, asumir que la canción es válida para evitar interrupciones
+      return true;
+    }
+  }
+
+  /**
+   * 🔧 NUEVO: Forzar sincronización manual
+   */
+  async forceSync() {
+    console.log('🔄 Forzando sincronización manual...');
+    await this.reloadPlaylists();
+  }
+
+
+
+  /**
+   * Reconstruir contadores de intervalos tras recarga de playlists
+   */
+  rebuildIntervalCounters() {
+    const newMap = new Map();
+    for (const p of this.intervalPlaylists) {
+      const prev = this.intervalCounters.get(p.id) ?? 0;
+      newMap.set(p.id, Math.max(0, prev));
+    }
+    this.intervalCounters = newMap;
+    // Limpiar cola de intervalos no válidos
+    this.pendingIntervalQueue = this.pendingIntervalQueue.filter(p => this.intervalCounters.has(p.id));
+  }
+
+  /**
+   * Incrementar contadores de todas las playlists de intervalo activas (operacionales ahora)
+   */
+  incrementIntervalCounters() {
+    // Incrementar el contador de TODAS las playlists de intervalo activas, estén o no en franja.
+    // Esto permite reglas como "cada 3 canciones" de forma consistente, incluso si
+    // una playlist entra en franja más tarde: disparará solo cuando el contador >= repetir_cada.
+    for (const p of this.intervalPlaylists) {
+      const current = Number(this.intervalCounters.get(p.id) ?? 0);
+      this.intervalCounters.set(p.id, current + 1);
+    }
+  }
+
+  /**
+   * Determinar si una playlist está activa (activa=true) y dentro de franja local
+   */
+  isPlaylistOperationalNow(playlist) {
+    const isActiveFlag = playlist?.activa === true || playlist?.activa === 1;
+    return !!isActiveFlag && this.isInActiveTimeFrame(playlist);
+  }
+
+  /**
+   * Aplicar efectos inmediatos de cambios de franja horaria/activa
+   */
+  applyImmediateTimeFrameEffects() {
+    // Si la playlist actual dejó de ser operativa, finalizar interrupción y volver a rotación
+    if (this.currentPlaylist && !this.isPlaylistOperationalNow(this.currentPlaylist)) {
+      console.log('⏱️ Playlist actual dejó de estar operativa, retornando a rotación');
+      this.endInterrupt();
+    }
+  }
+
+  /**
+   * Chequear transiciones de franja horaria cada segundo
+   */
+  checkTimeFrameTransitions() {
+    try {
+      // Construir cola si alguna playlist entra en franja y su contador cumple
+      const newlyTriggered = [];
+      for (const p of this.intervalPlaylists) {
+        const was = p.__wasOperational || false;
+        const now = this.isPlaylistOperationalNow(p);
+        if (!was && now) {
+          const count = this.intervalCounters.get(p.id) ?? 0;
+          if (p.repetir_unidad === 'canciones' && count >= p.repetir_cada) {
+            newlyTriggered.push(p);
+            this.intervalCounters.set(p.id, 0);
+          }
+        }
+        p.__wasOperational = now;
+      }
+      if (newlyTriggered.length > 0) {
+        newlyTriggered.sort((a, b) => (a.repetir_cada || 0) - (b.repetir_cada || 0));
+        this.pendingIntervalQueue.push(...newlyTriggered);
+      }
+    } catch (e) {
+      console.warn('⚠️ Error en checkTimeFrameTransitions:', e);
+    }
+  }
+
+  /**
+   * Configurar eventos del reproductor de audio
+   */
+  setupAudioEvents() {
+    // Limpiar eventos previos
+    this.clearAudioEvents();
+    
+    // Evento principal: cuando termina una canción
+    this.onEndHandler = (song) => {
+      console.log('🔚 AutoDJ: Evento onEnd recibido para:', song?.canciones?.titulo || song?.titulo);
+      // Si terminó una canción de rotación, incrementar contadores por playlist de intervalo
+      if (!this.isInInterrupt) {
+        this.globalRotationCounter++;
+        this.incrementIntervalCounters();
+      }
+      this.handleSongEnd();
+    };
+    audioPlayer.on('onEnd', this.onEndHandler);
+
+    // Eventos de estado
+    this.onPlayHandler = (song) => {
+      console.log('▶️ AutoDJ: Reproducción iniciada:', song?.canciones?.titulo || song?.titulo);
+      if (!this.userHasStartedPlaying) {
+        this.userHasStartedPlaying = true;
+        this.smartPreloadEnabled = true;
+        console.log('🎯 PRIMERA REPRODUCCIÓN: Activando precarga automática inteligente');
+        setTimeout(() => {
+          this.preloadNextSong();
+        }, 2000);
+      }
+    };
+    audioPlayer.on('onPlay', this.onPlayHandler);
+
+    this.onPauseHandler = (song) => {
+      console.log('⏸️ AutoDJ: Reproducción pausada:', song?.canciones?.titulo || song?.titulo);
+    };
+    audioPlayer.on('onPause', this.onPauseHandler);
+
+    this.onRequestPreloadHandler = () => {
+      if (!this.smartPreloadEnabled) {
+        console.log('📡 Precarga JUST-IN-TIME solicitada (usuario no ha reproducido aún)');
+        this.preloadNextSong();
+      } else {
+        console.log('📡 Precarga JUST-IN-TIME ignorada (precarga automática ya activa)');
+      }
+    };
+    audioPlayer.on('onRequestPreload', this.onRequestPreloadHandler);
+
+    this.onErrorHandler = (errorData) => {
+      const now = Date.now();
+      const errorMessage = errorData.message || errorData.error?.message || 'Error desconocido';
+      const errorCode = errorData.errorCode;
+      const songTitle = errorData.songTitle || 'Canción desconocida';
+      
+      console.error('❌ AutoDJ: Error en reproductor:', {
+        message: errorMessage,
+        code: errorCode,
+        song: songTitle,
+        error: errorData
+      });
+      
+      if (errorMessage.includes('NotAllowedError') || 
+          errorMessage.includes('user didn\'t interact') ||
+          errorMessage.includes('autoplay')) {
+        console.warn('🚫 Error de autoplay detectado - se requiere interacción del usuario');
+        this.requiresUserInteraction = true;
+        this.isInErrorState = true;
+        this.stopErrorLoop();
+        return;
+      }
+      if (errorMessage.includes('crossfade desactivado') || 
+          errorMessage.includes('Precarga saltada')) {
+        console.log('ℹ️ Error de precarga ignorado - crossfade desactivado (comportamiento normal)');
+        return;
+      }
+      
+      // 🔧 NUEVO: Manejo específico para errores de archivos corruptos
+      if (errorCode === 4 || errorMessage.includes('DEMUXER_ERROR') || 
+          errorMessage.includes('SRC_NOT_SUPPORTED') || 
+          errorMessage.includes('Formato no soportado')) {
+        console.warn('⚠️ Archivo de audio corrupto o no soportado:', songTitle);
+        console.warn('🔄 Intentando siguiente canción automáticamente...');
+        
+        // Limpiar canción actual que falló
+        this.currentSong = null;
+        
+        if (!this.isInErrorState && !this.requiresUserInteraction) {
+          setTimeout(() => {
+            this.handleSongEnd();
+          }, 1000); // Menos tiempo para archivos corruptos
+        }
+        return;
+      }
+      
+      if (now - this.lastErrorTime < 1000) {
+        this.errorCount++;
+      } else {
+        this.errorCount = 1;
+      }
+      this.lastErrorTime = now;
+      if (this.errorCount >= this.maxErrors) {
+        console.error('🚨 Demasiados errores consecutivos, pausando AutoDJ');
+        this.isInErrorState = true;
+        this.stopErrorLoop();
+        setTimeout(() => {
+          this.resetErrorState();
+        }, this.errorResetTime);
+        return;
+      }
+      if (!this.isInErrorState && !this.requiresUserInteraction) {
+        setTimeout(() => {
+          this.handleSongEnd();
+        }, 2000);
+      }
+    };
+    audioPlayer.on('onError', this.onErrorHandler);
+
+    // 🔧 NUEVO: Eventos de interrupción agendada
+    this.onInterruptionStartHandler = (data) => {
+      console.log('🎭 AutoDJ: Inicio de interrupción agendada:', {
+        currentSong: data.currentSong?.canciones?.titulo || data.currentSong?.titulo,
+        interruptionSong: data.interruptionSong?.canciones?.titulo || data.interruptionSong?.titulo
+      });
+    };
+    audioPlayer.on('onInterruptionStart', this.onInterruptionStartHandler);
+  }
+
+  /**
+   * Limpiar eventos del reproductor de audio
+   */
+  clearAudioEvents() {
+    if (this.onEndHandler) {
+      audioPlayer.off('onEnd', this.onEndHandler);
+      audioPlayer.off('onPlay', this.onPlayHandler);
+      audioPlayer.off('onPause', this.onPauseHandler);
+      audioPlayer.off('onError', this.onErrorHandler);
+      audioPlayer.off('onRequestPreload', this.onRequestPreloadHandler);
+      audioPlayer.off('onInterruptionStart', this.onInterruptionStartHandler);
+      audioPlayer.off('onInterruptionEnd', this.onInterruptionEndHandler);
+    }
+  }
+
+  /**
+   * Limpieza suave para cambios de canal (deteniendo reproducción actual)
+   */
+  async cleanupForChannelChange() {
+    console.log('🔄 Limpieza suave para cambio de canal...');
+    
+    // 🔧 CRÍTICO: Detener reproducción actual antes de limpiar
+    if (audioPlayer && audioPlayer.isPlaying) {
+      console.log('⏹️ Deteniendo reproducción actual antes del cambio de canal');
+      try {
+        await audioPlayer.stop();
+      } catch (error) {
+        console.warn('⚠️ Error deteniendo audio durante cambio de canal:', error);
+      }
+    }
+    
+    // Limpiar timers y suscripciones
+    this.stopTimers();
+    
+    try {
+      this.cleanupRealtimeSubscriptions();
+    } catch (error) {
+      console.warn('⚠️ Error limpiando suscripciones realtime:', error);
+    }
+    
+    // Resetear estado de playlists pero mantener canal activo
+    this.rotationPlaylists = [];
+    this.intervalPlaylists = [];
+    this.scheduledPlaylists = [];
+    this.currentPlaylist = null;
+    this.currentSong = null; // 🔧 CORREGIDO: Limpiar canción actual
+    this.playQueue = [];
+    
+    // Resetear contadores pero mantener estado activo
+    this.globalRotationCounter = 0;
+    this.intervalCounters.clear();
+    this.pendingIntervalQueue = [];
+    
+    // Limpiar estado de interrupciones
+    this.isInInterrupt = false;
+    this.interruptType = null;
+    this.previousRotationState = null;
+    
+    // Resetear flag de protección pero mantener activo
+    this.isHandlingSongEnd = false;
+    
+    // 🔧 NUEVO: Resetear estado de reproducción
+    this.isPlaying = false;
+    this.isPaused = false;
+    
+    // CRÍTICO: Mantener isActive = true para indicar que seguimos funcionando
+    console.log('✅ Limpieza suave completada - manteniendo estado activo');
+  }
+
+  /**
+   * Inicializar AutoDJ para un canal específico
+   */
+  async initializeChannel(channel) {
+    try {
+      console.log('🎛️ Inicializando AutoDJ para canal:', channel?.nombre || channel?.name || channel?.id);
+      
+      
+      // Evitar reinicializar si ya estamos activos en el mismo canal
+      if (this.isActive && this.currentChannel?.id && channel?.id && this.currentChannel.id === channel.id) {
+        console.log('⏭️ AutoDJ ya inicializado para este canal, ignorando reinicialización');
+        return true;
+      }
+      
+      // 🔥 MEJORADO: Detección de cambio de canal vs inicialización completa
+      const isChannelChange = this.isActive && this.currentChannel?.id && channel?.id && this.currentChannel.id !== channel.id;
+      const wasPlaying = audioPlayer.getState().isPlaying;
+      
+      if (isChannelChange) {
+        console.log('🔄 Cambiando canal de', this.currentChannel.nombre || this.currentChannel.name, 'a', channel.nombre || channel.name);
+        console.log('🎵 Estado de reproducción:', wasPlaying ? 'REPRODUCIENDO' : 'PARADO');
+        
+        // Para cambios de canal, solo limpiar estado sin detener audio completamente
+        await this.cleanupForChannelChange();
+      } else {
+        console.log('🧹 Inicialización completa - limpiando estado anterior...');
+        this.stop(); // Limpieza completa solo para inicializaciones nuevas
+      }
+      
+      // PASO 2: Pequeña pausa para asegurar limpieza completa
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // PASO 3: Configurar nuevo canal
+      this.currentChannel = channel;
+      
+      // PASO 3.1: CRÍTICO - Establecer canal en audioPlayerService para verificaciones
+      audioPlayer.setCurrentChannel(channel.id);
+      
+      // PASO 3.2: EMERGENCIA - Limpiar cualquier canción precargada incorrecta
+      const cleaned = audioPlayer.forceCleanIncorrectPreloadedSong();
+      if (cleaned) {
+        console.log('🧹 Canción precargada incorrecta eliminada durante inicialización');
+      }
+      
+      // PASO 4: Resetear estado para nuevo canal
+      this.resetState();
+      
+      // PASO 5: Cargar todas las playlists del canal
+      console.log('📂 Cargando playlists del nuevo canal...');
+      await this.loadChannelPlaylists();
+      
+      // PASO 6: 🔧 NUEVO: Configurar sincronización en tiempo real
+      console.log('🔄 Configurando sincronización en tiempo real...');
+      this.setupRealtimeSync();
+      
+      // PASO 7: Iniciar reproducción automática
+      console.log('🚀 Iniciando sistema AutoDJ...');
+      await this.start();
+      
+      // PASO 8: Si era un cambio de canal y estaba reproduciendo, continuar automáticamente
+      if (isChannelChange && wasPlaying) {
+        console.log('▶️ Era cambio de canal y estaba reproduciendo - continuando automáticamente...');
+        setTimeout(async () => {
+          try {
+            // Forzar reproducción directamente en el audioPlayer
+            await audioPlayer.play();
+            console.log('✅ Reproducción continuada exitosamente tras cambio de canal');
+          } catch (error) {
+            console.error('❌ Error continuando reproducción tras cambio de canal:', error);
+            // Fallback: intentar con togglePlayPause
+            try {
+              await this.togglePlayPause();
+              console.log('✅ Reproducción iniciada con toggle como fallback');
+            } catch (fallbackError) {
+              console.error('❌ Error en fallback toggle:', fallbackError);
+            }
+          }
+        }, 800); // Mayor delay para asegurar que todo esté completamente listo
+      }
+      
+      // PASO 9: Iniciar timers de verificación
+      this.startTimers();
+      
+      console.log('✅ AutoDJ inicializado exitosamente para:', channel?.nombre || channel?.name);
+      return true;
+    } catch (error) {
+      console.error('❌ Error inicializando AutoDJ:', error);
+      console.error('🔍 Detalles del error:', {
+        channelId: channel?.id,
+        channelName: channel?.nombre || channel?.name,
+        errorMessage: error.message,
+        errorStack: error.stack
+      });
+      
+      // En caso de error, asegurar limpieza
+      try {
+        this.stop();
+      } catch (cleanupError) {
+        console.error('❌ Error en limpieza tras fallo:', cleanupError);
+      }
+      
+      return false;
+    }
+  }
+
+  /**
+   * Resetear estado interno
+   */
+  resetState() {
+    console.log('🧹 Reseteando estado interno del AutoDJ...');
+    
+    // Resetear listas de playlists
+    this.rotationPlaylists = [];
+    this.intervalPlaylists = [];
+    this.scheduledPlaylists = [];
+    
+    // Resetear estado de reproducción
+    this.currentPlaylist = null;
+    this.currentSong = null;
+    this.currentSongIndex = 0;
+    this.playQueue = [];
+    
+    // Resetear contadores
+    this.globalRotationCounter = 0;
+    
+    // Resetear interrupciones
+    this.isInInterrupt = false;
+    this.interruptType = null;
+    this.previousRotationState = null;
+    
+    // 🔧 SISTEMA HÍBRIDO: Resetear estado de precarga inteligente
+    this.userHasStartedPlaying = false;
+    this.smartPreloadEnabled = false;
+    console.log('🔄 Sistema híbrido reseteado - volverá a just-in-time hasta primera reproducción');
+    
+    // Resetear control de precarga
+    this.lastPreloadAttempt = 0;
+    this.preloadErrorCount = 0;
+    
+    // 🔧 NUEVO: Resetear flag de protección contra ejecuciones concurrentes
+    this.isHandlingSongEnd = false;
+    
+    // Resetear flag de playlists agendadas ejecutadas
+    this.executedScheduledPlaylists.clear();
+    
+    // Detener timers
+    this.stopTimers();
+    
+    console.log('✅ Estado interno reseteado completamente');
+  }
+
+  /**
+   * Detener completamente el AutoDJ y limpiar todo
+   */
+  stop() {
+    try {
+      console.log('⏹️ Deteniendo AutoDJ completamente...');
+      
+      // Marcar como inactivo
+      this.isActive = false;
+      
+      // Detener timers
+      this.stopTimers();
+      
+      // Limpiar estado de error
+      this.resetErrorState();
+      
+      // Detener y limpiar audioPlayer
+      this.cleanupAudioPlayer();
+      
+      // Limpiar eventos del audioPlayer
+      this.clearAudioEvents();
+      
+      // 🔧 NUEVO: Limpiar suscripciones en tiempo real
+      this.cleanupRealtimeSubscriptions();
+      
+      // Resetear estado interno (sin llamar a stop nuevamente)
+      this.rotationPlaylists = [];
+      this.intervalPlaylists = [];
+      this.scheduledPlaylists = [];
+      this.currentPlaylist = null;
+      this.currentSong = null;
+      this.currentSongIndex = 0;
+      this.playQueue = [];
+      this.globalRotationCounter = 0;
+      this.isInInterrupt = false;
+      this.interruptType = null;
+      this.previousRotationState = null;
+      
+      // Resetear control de precarga
+      this.lastPreloadAttempt = 0;
+      this.preloadErrorCount = 0;
+      
+      // 🔧 NUEVO: Resetear flag de protección
+      this.isHandlingSongEnd = false;
+      
+      // Resetear flag de playlists agendadas ejecutadas
+      this.executedScheduledPlaylists.clear();
+      
+      console.log('✅ AutoDJ detenido completamente');
+    } catch (error) {
+      console.error('❌ Error deteniendo AutoDJ:', error);
+    }
+  }
+
+  /**
+   * Limpiar completamente el audioPlayer
+   */
+  cleanupAudioPlayer() {
+    try {
+      console.log('🧹 Limpiando AudioPlayer...');
+      
+      // Mostrar estado antes de limpiar
+      const audioState = audioPlayer.getState();
+      console.log('📊 Estado AudioPlayer antes de limpiar:', {
+        isPlaying: audioState.isPlaying,
+        currentSong: audioState.currentSong?.canciones?.titulo || audioState.currentSong?.titulo || 'Ninguna',
+        nextSong: audioState.nextSong?.canciones?.titulo || audioState.nextSong?.titulo || 'Ninguna',
+        nextSongLoaded: audioState.nextSongLoaded,
+        isCrossfading: audioState.isCrossfading
+      });
+      
+      // Usar el nuevo método reset del audioPlayerService
+      audioPlayer.reset();
+      
+      // Verificar que se limpió correctamente
+      const audioStateAfter = audioPlayer.getState();
+      console.log('📊 Estado AudioPlayer después de limpiar:', {
+        isPlaying: audioStateAfter.isPlaying,
+        currentSong: audioStateAfter.currentSong,
+        nextSong: audioStateAfter.nextSong,
+        nextSongLoaded: audioStateAfter.nextSongLoaded,
+        isCrossfading: audioStateAfter.isCrossfading
+      });
+      
+      // Verificación crítica
+      if (audioStateAfter.nextSong || audioStateAfter.nextSongLoaded) {
+        console.error('❌ CRÍTICO: AudioPlayer no se limpió completamente!', {
+          nextSong: audioStateAfter.nextSong,
+          nextSongLoaded: audioStateAfter.nextSongLoaded
+        });
+      } else {
+        console.log('✅ AudioPlayer limpiado completamente - sin canciones residuales');
+      }
+      
+    } catch (error) {
+      console.warn('⚠️ Error limpiando AudioPlayer:', error);
+    }
+  }
+
+  /**
+   * Cargar todas las playlists del canal clasificadas por tipo
+   */
+  async loadChannelPlaylists() {
+    try {
+      console.log('📂 Cargando playlists del canal...');
+      
+      const allPlaylists = await playlistsApi.getChannelPlaylists(this.currentChannel.id);
+      
+      console.log('📂 Playlists del canal:', allPlaylists?.length || 0);
+      console.log('🔍 DEBUG - Todas las playlists cargadas:', allPlaylists?.map(p => ({
+        nombre: p.nombre,
+        tipo: p.tipo,
+        activa: p.activa,
+        canal_id: p.canal_id,
+        activa_desde: p.activa_desde,
+        activa_hasta: p.activa_hasta
+      })));
+      
+      // Filtrar usando la estructura real de la base de datos
+      // La API ya filtra por 'activa = true', pero por si acaso verificamos también
+      this.rotationPlaylists = allPlaylists.filter(p => {
+        const isCorrectType = (p.tipo === 'rotacion' || p.tipo === 'general');
+        const isActive = (p.activa === true || p.activa === 1);
+        const belongsToChannel = !p.canal_id || p.canal_id === this.currentChannel.id;
+        
+        if (!belongsToChannel) {
+          console.warn('🚫 Playlist de rotación filtrada (canal incorrecto):', {
+            nombre: p.nombre,
+            playlistCanalId: p.canal_id,
+            currentChannelId: this.currentChannel.id
+          });
+        }
+        
+        return isCorrectType && isActive && belongsToChannel;
+      });
+      
+      this.intervalPlaylists = allPlaylists.filter(p => {
+        const isCorrectType = p.tipo === 'intervalo';
+        const isActive = (p.activa === true || p.activa === 1);
+        const belongsToChannel = !p.canal_id || p.canal_id === this.currentChannel.id;
+        
+        if (!belongsToChannel) {
+          console.warn('🚫 Playlist de intervalo filtrada (canal incorrecto):', {
+            nombre: p.nombre,
+            playlistCanalId: p.canal_id,
+            currentChannelId: this.currentChannel.id
+          });
+        }
+        
+        if (!isActive) {
+          console.warn('🚫 Playlist de intervalo filtrada (inactiva):', {
+            nombre: p.nombre,
+            activa: p.activa
+          });
+        }
+        
+        console.log(`📋 Playlist de intervalo "${p.nombre}": tipo=${isCorrectType}, activa=${isActive}, canal=${belongsToChannel} -> ${isCorrectType && isActive && belongsToChannel ? 'INCLUIDA' : 'FILTRADA'}`);
+        
+        return isCorrectType && isActive && belongsToChannel;
+      });
+      
+      // Eliminar soporte de playlists agendadas
+      this.scheduledPlaylists = [];
+      
+      console.log('📊 Playlists clasificadas (solo rotación/intervalo):', {
+        rotacion: this.rotationPlaylists.length,
+        intervalo: this.intervalPlaylists.length
+      });
+      
+      // Si aún no hay playlists de rotación, usar todas las disponibles como fallback
+              if (this.rotationPlaylists.length === 0) {
+        console.error('❌ No hay playlists de rotación válidas en este canal');
+        throw new Error(`No hay playlists de rotación válidas en el canal "${this.currentChannel?.nombre || this.currentChannel?.id}". Verificar configuración.`);
+      }
+      
+      // Validar que hay al menos una playlist
+      if (this.rotationPlaylists.length === 0) {
+        console.error('❌ No hay playlists disponibles en el canal');
+        throw new Error('No hay playlists disponibles en el canal. Verificar configuración de la base de datos.');
+      } else {
+        console.log('✅ Playlists de rotación encontradas:', this.rotationPlaylists.map(p => p.nombre));
+      }
+      
+    } catch (error) {
+      console.error('❌ Error cargando playlists:', error);
+      console.log('🔍 DEBUG - Detalles del error:', {
+        message: error.message,
+        stack: error.stack,
+        channelId: this.currentChannel?.id,
+        channelName: this.currentChannel?.nombre || this.currentChannel?.name
+      });
+      
+      // Verificar si es un error de la API
+      if (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('API')) {
+        console.warn('⚠️ Parece ser un error de conexión con la API');
+        throw new Error('Error de conexión con el servidor. Verificar conectividad.');
+      }
+      
+      throw error;
+    }
+  }
+
+  /**
+   * Iniciar reproducción automática
+   */
+  async start() {
+    try {
+      console.log('🚀 Iniciando reproducción automática...');
+      this.isActive = true;
+      
+      // Resetear estado de error
+      this.resetErrorState();
+      
+      // Seleccionar primera canción
+      const firstSong = await this.selectNextSong();
+      if (firstSong) {
+        // Cargar canción pero no reproducir automáticamente (por políticas de autoplay)
+        await this.loadSongOnly(firstSong);
+        console.log('📼 Canción cargada. Haz clic en play para iniciar la reproducción.');
+      } else {
+        throw new Error('No se pudo seleccionar primera canción');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error iniciando reproducción:', error);
+      
+      // Si es error de autoplay, no relanzar error
+      if (error.message && error.message.includes('NotAllowedError')) {
+        console.warn('🚫 Reproducción automática bloqueada por el navegador');
+        this.requiresUserInteraction = true;
+        return; // No relanzar el error
+      }
+      
+      throw error;
+    }
+  }
+
+  /**
+   * Detener AutoDJ
+   */
+  stop() {
+    console.log('⏹️ Deteniendo AutoDJ...');
+    this.isActive = false;
+    this.stopTimers();
+    audioPlayer.stop();
+  }
+
+  /**
+   * Pausar/reanudar reproducción
+   */
+  async togglePlayPause() {
+    try {
+      // Si es la primera interacción del usuario, permitir reproducción
+      if (this.requiresUserInteraction) {
+        this.allowPlaybackAfterInteraction();
+      }
+
+      const audioState = audioPlayer.getState();
+      if (audioState.isPlaying) {
+        audioPlayer.pause();
+      } else {
+        await audioPlayer.play();
+        console.log('▶️ Reproducción iniciada por interacción del usuario');
+      }
+    } catch (error) {
+      console.error('❌ Error en togglePlayPause:', error);
+      
+      // Si es error de autoplay aún, mantener el estado
+      if (error.message && error.message.includes('NotAllowedError')) {
+        console.warn('🚫 Aún se requiere más interacción del usuario');
+        this.requiresUserInteraction = true;
+      }
+    }
+  }
+
+  /**
+   * Avanzar manualmente a siguiente canción
+   */
+  async next() {
+    console.log('⏭️ Avance manual solicitado');
+    return await this.handleSongEnd();
+  }
+
+  /**
+   * Seleccionar siguiente canción según prioridades
+   */
+  async selectNextSong() {
+    try {
+      console.log('🎯 Seleccionando siguiente canción...');
+      console.log('🔍 DEBUG - Estado actual del AutoDJ:', {
+        isInInterrupt: this.isInInterrupt,
+        interruptType: this.interruptType,
+        globalRotationCounter: this.globalRotationCounter,
+        rotationPlaylistsCount: this.rotationPlaylists.length,
+        intervalPlaylistsCount: this.intervalPlaylists.length
+      });
+
+      // 0) Verificar si algún intervalo debe dispararse ahora (según contadores)
+      const intervalImmediate = await this.checkIntervalTrigger();
+      if (intervalImmediate) {
+        return intervalImmediate;
+      }
+
+      // 1) PRIORIDAD: Si hay intervalos pendientes, reproducir en orden (A → B)
+      if (this.pendingIntervalQueue.length > 0) {
+        const nextInterval = this.pendingIntervalQueue.shift();
+        console.log('🎯 Intervalo pendiente detectado, playlist:', nextInterval?.nombre || nextInterval?.id);
+        return await this.selectSongFromInterval(nextInterval);
+      }
+
+      // 2) PRIORIDAD BASE: Seleccionar de rotación general
+      console.log('🔍 Seleccionando de rotación general...');
+      const rotationSong = await this.selectFromRotation();
+      if (rotationSong) {
+        console.log('✅ Canción seleccionada de playlist ROTACIÓN:', rotationSong?.canciones?.titulo || rotationSong?.titulo);
+        console.log('📊 Playlist de origen:', {
+          id: this.currentPlaylist?.id,
+          nombre: this.currentPlaylist?.nombre,
+          tipo: this.currentPlaylist?.tipo
+        });
+        return rotationSong;
+      }
+      
+      console.error('❌ No se pudo seleccionar ninguna canción de ninguna categoría');
+      return null;
+      
+    } catch (error) {
+      console.error('❌ Error seleccionando siguiente canción:', error);
+      // Fallback: intentar rotación general
+      console.log('🔄 Fallback: intentando solo rotación general...');
+      return await this.selectFromRotation();
+    }
+  }
+
+  /**
+   * Verificar si hay playlists agendadas activas
+   */
+  async checkScheduledPlaylists() { return null; }
+
+  /**
+   * Verificar si una playlist agendada está activa
+   */
+  isScheduledPlaylistActive() { return false; }
+
+  /**
+   * Formatear fecha para comparación (DD/MM/YYYY -> YYYY-MM-DD)
+   */
+  formatDateForComparison(dateString) {
+    if (!dateString) return null;
+    
+    // Si ya está en formato YYYY-MM-DD, retornar tal cual
+    if (dateString.includes('-') && dateString.length === 10) {
+      return dateString;
+    }
+    
+    // Si está en formato DD/MM/YYYY, convertir
+    if (dateString.includes('/')) {
+      const [day, month, year] = dateString.split('/');
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+    
+    return dateString;
+  }
+
+  /**
+   * Verificar si debe activarse una playlist de intervalo
+   */
+  async checkIntervalTrigger() {
+    // Nuevo flujo: usar contadores por playlist y construir cola de ejecución
+    if (this.isInInterrupt) return null;
+    
+    const triggered = [];
+    for (const playlist of this.intervalPlaylists) {
+      // 🔧 DEBUG específico para MUSICA EN CHINO
+      if (playlist.nombre === 'MUSICA EN CHINO') {
+        const now = new Date();
+        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const isOperational = this.isPlaylistOperationalNow(playlist);
+        // Calcular conversión UTC → Local para debug
+        const activaDesdeUTC = playlist.activa_desde ? new Date(playlist.activa_desde) : null;
+        const activaHastaUTC = playlist.activa_hasta ? new Date(playlist.activa_hasta) : null;
+        const startLocal = activaDesdeUTC ? new Date(activaDesdeUTC.getTime() + (now.getTimezoneOffset() * 60000)) : null;
+        const endLocal = activaHastaUTC ? new Date(activaHastaUTC.getTime() + (now.getTimezoneOffset() * 60000)) : null;
+        
+        console.log('🎵 DEBUG MUSICA EN CHINO en checkIntervalTrigger:', {
+          nombre: playlist.nombre,
+          // Timestamps originales (UTC)
+          activa_desde_utc: playlist.activa_desde,
+          activa_hasta_utc: playlist.activa_hasta,
+          // Conversión a hora local para comparación
+          franja_local_inicio: startLocal ? `${startLocal.getHours().toString().padStart(2, '0')}:${startLocal.getMinutes().toString().padStart(2, '0')}` : null,
+          franja_local_fin: endLocal ? `${endLocal.getHours().toString().padStart(2, '0')}:${endLocal.getMinutes().toString().padStart(2, '0')}` : null,
+          // Hora actual
+          hora_local_actual: currentTime,
+          // Estado
+          isOperational: isOperational,
+          repetir_cada: playlist.repetir_cada,
+          repetir_unidad: playlist.repetir_unidad,
+          contador_actual: this.intervalCounters.get(playlist.id) || 0,
+          resultado: !isOperational ? '❌ INACTIVA' : '✅ ACTIVA'
+        });
+      }
+      
+      if (!this.isPlaylistOperationalNow(playlist)) continue;
+      const count = Number(this.intervalCounters.get(playlist.id) ?? 0);
+      const unidad = (playlist.repetir_unidad || '').toString().toLowerCase();
+      const threshold = Number(playlist.repetir_cada ?? 0);
+      if (!Number.isFinite(threshold) || threshold <= 0) continue;
+      if (unidad === 'canciones' && count >= threshold) {
+        console.log('🎯 Intervalo listo para disparar:', {
+          playlist: playlist.nombre,
+          count,
+          threshold
+        });
+        triggered.push(playlist);
+      }
+    }
+
+    if (triggered.length > 0) {
+      // Ordenar por repetir_cada ascendente para A → B
+      triggered.sort((a, b) => (a.repetir_cada || 0) - (b.repetir_cada || 0));
+      this.pendingIntervalQueue.push(...triggered);
+      // Resetear contadores de los que entran a cola
+      triggered.forEach(p => this.intervalCounters.set(p.id, 0));
+      const nextInterval = this.pendingIntervalQueue.shift();
+      console.log('🔁 Activando playlist de intervalo:', nextInterval?.nombre);
+      return await this.selectSongFromInterval(nextInterval);
+    }
+    return null;
+  }
+
+  /**
+   * Verificar si debe activarse un intervalo específico
+   */
+  shouldTriggerInterval() { return false; }
+
+  /**
+   * Obtener razón por la que no se activa una playlist de intervalo
+   */
+  getIntervalTriggerReason(playlist) {
+    // Verificar franja horaria si está habilitada
+    if (playlist.usar_franja_horaria && !this.isInActiveTimeFrame(playlist)) {
+      return `Fuera de franja horaria (${playlist.franja_inicio} - ${playlist.franja_fin})`;
+    }
+    
+    // Verificar contador según unidad
+    if (playlist.repetir_unidad === 'canciones') {
+      const faltan = playlist.repetir_cada - this.globalRotationCounter;
+      return `Contador insuficiente (${this.globalRotationCounter}/${playlist.repetir_cada}, faltan ${faltan} canciones)`;
+    }
+    
+    return `Unidad no soportada: ${playlist.repetir_unidad}`;
+  }
+
+  /**
+   * Verificar si una playlist está en su franja horaria activa
+   */
+  isInActiveTimeFrame(playlist) {
+    // 🔧 CORREGIDO: Verificar tanto campos nuevos como antiguos
+    const hasOldFormat = playlist.usar_franja_horaria && (playlist.franja_inicio || playlist.franja_fin);
+    const hasNewFormat = playlist.activa_desde || playlist.activa_hasta;
+    
+    if (!hasOldFormat && !hasNewFormat) return true;
+    
+    const now = new Date();
+    
+    // Formato nuevo: activa_desde y activa_hasta (timestamps)
+    if (hasNewFormat) {
+      const activaDesde = playlist.activa_desde ? new Date(playlist.activa_desde) : null;
+      const activaHasta = playlist.activa_hasta ? new Date(playlist.activa_hasta) : null;
+      
+      // 🔧 CASO ESPECIAL: Si ambas fechas son iguales, significa "siempre activa"
+      if (activaDesde && activaHasta && activaDesde.getTime() === activaHasta.getTime()) {
+        // 🔧 CORREGIDO: Solo loggear una vez por playlist para evitar spam
+        const cacheKey = `always_active_${playlist.id}`;
+        if (!this.timeFrameCache || !this.timeFrameCache[cacheKey]) {
+          if (!this.timeFrameCache) this.timeFrameCache = {};
+          this.timeFrameCache[cacheKey] = true;
+          console.log('🕐 Playlist siempre activa detectada:', playlist.nombre, '(activa_desde === activa_hasta)');
+        }
+        return true;
+      }
+      
+      // 🔧 CORRECCIÓN: Comparar solo las horas/minutos, no fechas completas
+      // El admin guarda hora local → UTC, el reproductor debe interpretar UTC → hora local
+      if (activaDesde && activaHasta) {
+        const currentHours = now.getHours();
+        const currentMinutes = now.getMinutes();
+        const currentTimeInMinutes = currentHours * 60 + currentMinutes;
+        
+        // Convertir timestamps UTC a hora local para comparación
+        const startLocalTime = new Date(activaDesde.getTime() + (now.getTimezoneOffset() * 60000));
+        const endLocalTime = new Date(activaHasta.getTime() + (now.getTimezoneOffset() * 60000));
+        
+        const startMinutes = startLocalTime.getHours() * 60 + startLocalTime.getMinutes();
+        const endMinutes = endLocalTime.getHours() * 60 + endLocalTime.getMinutes();
+        
+        if (startMinutes <= endMinutes) {
+          // Franja normal (ej: 15:00 - 17:00)
+          return currentTimeInMinutes >= startMinutes && currentTimeInMinutes <= endMinutes;
+        } else {
+          // Franja que cruza medianoche (ej: 23:00 - 06:00)
+          return currentTimeInMinutes >= startMinutes || currentTimeInMinutes <= endMinutes;
+        }
+      }
+      
+      return true;
+    }
+    
+    // Formato antiguo: franja_inicio y franja_fin (HH:MM)
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const timeToMinutes = (hhmm) => {
+      if (!hhmm) return null;
+      const [h, m] = hhmm.split(':').map(Number);
+      return h * 60 + m;
+    };
+    const startMinutes = timeToMinutes(playlist.franja_inicio);
+    const endMinutes = timeToMinutes(playlist.franja_fin);
+    if (startMinutes == null || endMinutes == null) return true;
+    if (startMinutes <= endMinutes) {
+      return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+    } else {
+      return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+    }
+  }
+
+  /**
+   * Convertir tiempo HH:MM a minutos desde medianoche
+   */
+  timeToMinutes(timeString) {
+    const [hours, minutes] = timeString.split(':').map(Number);
+    return hours * 60 + minutes;
+  }
+
+  /**
+   * Seleccionar canción de playlist agendada
+   */
+  async selectSongFromScheduled(playlist) {
+    console.log('📅 Seleccionando de playlist agendada:', playlist.nombre);
+    
+    // Guardar estado de rotación para retorno
+    this.saveRotationState();
+    this.isInInterrupt = true;
+    this.interruptType = 'scheduled';
+    
+    return await this.loadPlaylistAndSelectSong(playlist);
+  }
+
+  /**
+   * Seleccionar canción de playlist de intervalo
+   */
+  async selectSongFromInterval(playlist) {
+    console.log('🔁 Seleccionando de playlist de intervalo:', playlist.nombre);
+    
+    // Guardar estado de rotación para retorno
+    this.saveRotationState();
+    this.isInInterrupt = true;
+    this.interruptType = 'interval';
+    
+    // Reiniciar contador de rotación
+    this.globalRotationCounter = 0;
+    console.log('🔄 Contador de rotación reiniciado');
+    
+    return await this.loadPlaylistAndSelectSong(playlist);
+  }
+
+  /**
+   * Seleccionar canción de rotación general (ponderada por peso)
+   */
+  async selectFromRotation() {
+    console.log('🌀 Seleccionando de rotación general...');
+    
+    // Si estamos saliendo de una interrupción, restaurar estado
+    if (this.isInInterrupt) {
+      this.restoreRotationState();
+    }
+    
+    // Obtener playlists de rotación activas en franja horaria actual
+    let activePlaylists = this.getActiveRotationPlaylists();
+    
+    // 🔧 FALLBACK: Si no hay playlists activas en franja horaria, usar todas las activas
+    if (activePlaylists.length === 0) {
+      console.log('⚠️ No hay playlists de rotación en franja horaria, usando fallback...');
+      activePlaylists = this.rotationPlaylists.filter(playlist => playlist?.activa === true || playlist?.activa === 1);
+      
+      if (activePlaylists.length === 0) {
+        throw new Error('No hay playlists de rotación activas en este canal');
+      }
+      
+      console.log('🔄 Fallback: usando playlists activas sin restricción horaria:', activePlaylists.map(p => p.nombre));
+    }
+    
+    // Seleccionar playlist ponderada por peso
+    const selectedPlaylist = this.selectPlaylistByWeight(activePlaylists);
+    console.log('🎯 Playlist seleccionada:', selectedPlaylist.nombre, 'peso:', selectedPlaylist.peso);
+    
+    return await this.loadPlaylistAndSelectSong(selectedPlaylist);
+  }
+
+  /**
+   * Obtener playlists de rotación activas en la franja horaria actual
+   */
+  getActiveRotationPlaylists() {
+    return this.rotationPlaylists.filter(playlist => this.isPlaylistOperationalNow(playlist));
+  }
+
+  /**
+   * Seleccionar playlist usando distribución ponderada por peso
+   */
+  selectPlaylistByWeight(playlists) {
+    // Calcular peso total
+    const totalWeight = playlists.reduce((sum, playlist) => sum + playlist.peso, 0);
+    
+    // Generar número aleatorio entre 1 y totalWeight
+    const random = Math.floor(Math.random() * totalWeight) + 1;
+    
+    // Seleccionar playlist según peso acumulado
+    let weightSum = 0;
+    for (const playlist of playlists) {
+      weightSum += playlist.peso;
+      if (random <= weightSum) {
+        return playlist;
+      }
+    }
+    
+    // Fallback (no debería llegar aquí)
+    return playlists[0];
+  }
+
+  /**
+   * Cargar playlist y seleccionar canción según configuración
+   */
+  async loadPlaylistAndSelectSong(playlist) {
+    try {
+      console.log('🎵 Cargando canciones de playlist:', playlist.nombre);
+      console.log('🔍 DEBUG - Detalles de playlist a cargar:', {
+        id: playlist.id,
+        nombre: playlist.nombre,
+        tipo: playlist.tipo,
+        activa: playlist.activa,
+        peso: playlist.peso,
+        orden: playlist.orden,
+        canal_id: playlist.canal_id,
+        uso_en_autodj: playlist.uso_en_autodj
+      });
+      
+      // 🚨 VERIFICACIÓN CRÍTICA: ¿La playlist pertenece al canal actual?
+      const currentChannelId = this.currentChannel?.id;
+      if (playlist.canal_id && playlist.canal_id !== currentChannelId) {
+        console.error('🚨 ERROR CRÍTICO - Playlist de canal incorrecto:', {
+          playlistNombre: playlist.nombre,
+          playlistCanalId: playlist.canal_id,
+          currentChannelId: currentChannelId,
+          currentChannelName: this.currentChannel?.nombre
+        });
+        throw new Error(`Playlist "${playlist.nombre}" pertenece al canal ${playlist.canal_id}, no al canal actual ${currentChannelId}`);
+      }
+      
+      // Cargar canciones de la playlist
+      const songs = await songsApi.getPlaylistSongs(playlist.id);
+      
+      console.log('📂 Cargando canciones de playlist:', playlist.nombre, `(${songs?.length || 0} canciones)`);
+      
+      if (!songs || songs.length === 0) {
+        console.warn('⚠️ Playlist vacía:', playlist.nombre);
+        console.warn('🔍 DEBUG - Playlist vacía detalles:', {
+          playlistId: playlist.id,
+          apiResponse: songs,
+          reason: 'No songs returned from API'
+        });
+        return null;
+      }
+
+      // ✅ NUEVO MODELO: Las canciones son globales, pertenencia vía playlists
+      console.log('✅ Usando modelo de canciones globales - playlist ya filtrada por canal');
+      
+      // Todas las canciones de la playlist son válidas (playlist.canal_id ya las filtra)
+      const filteredSongs = songs.filter(song => {
+        // Solo verificaciones básicas de integridad
+        const hasValidData = song?.canciones?.titulo && song?.canciones?.url_s3;
+        
+        if (!hasValidData) {
+          console.warn('🚫 Canción filtrada (datos incompletos):', {
+            songTitle: song?.canciones?.titulo || 'Sin título',
+            hasUrl: !!song?.canciones?.url_s3,
+            hasTitle: !!song?.canciones?.titulo
+          });
+        }
+        
+        return hasValidData;
+      });
+
+      console.log('📊 Filtrado de canciones:', {
+        original: songs.length,
+        válidas: filteredSongs.length,
+        filtradas: songs.length - filteredSongs.length,
+        playlist: playlist.nombre
+      });
+      
+      if (filteredSongs.length === 0) {
+        console.error('❌ No hay canciones válidas del canal actual en playlist:', playlist.nombre);
+        console.error('🔍 DEBUG - Todas las canciones pertenecen a otros canales:', {
+          playlistId: playlist.id,
+          playlistName: playlist.nombre,
+          currentChannelId,
+          songChannels: songs.map(s => s?.canciones?.canal_id).filter((id, i, arr) => arr.indexOf(id) === i)
+        });
+        return null;
+      }
+      
+      this.currentPlaylist = playlist;
+      this.playQueue = filteredSongs; // Usar canciones filtradas
+      
+      // Seleccionar canción según orden configurado
+      let selectedSong;
+      
+      if (playlist.orden === 'aleatorio') {
+        // 🔧 NUEVO: Filtrar canciones para evitar repeticiones recientes
+        const songsWithoutRepetitions = this.filterRecentlyPlayedSongs(filteredSongs);
+        
+        // Selección aleatoria de las canciones disponibles (sin repeticiones recientes)
+        const randomIndex = Math.floor(Math.random() * songsWithoutRepetitions.length);
+        selectedSong = songsWithoutRepetitions[randomIndex];
+        
+        // Encontrar el índice original en la lista completa para mantener compatibilidad
+        this.currentSongIndex = filteredSongs.findIndex(song => 
+          (song?.canciones?.id || song?.id) === (selectedSong?.canciones?.id || selectedSong?.id)
+        );
+        
+        console.log('🎲 Selección aleatoria (sin repeticiones):', {
+          randomIndex,
+          originalIndex: this.currentSongIndex,
+          posicionEnAdmin: this.currentSongIndex + 1, // 🔧 NUEVO: Posición visual (base-1) como se ve en el admin
+          totalSongs: filteredSongs.length,
+          availableSongs: songsWithoutRepetitions.length,
+          selectedTitle: selectedSong?.canciones?.titulo || selectedSong?.titulo,
+          avoidedRepetitions: filteredSongs.length - songsWithoutRepetitions.length
+        });
+      } else {
+        // Selección secuencial
+        if (this.currentSongIndex >= filteredSongs.length) {
+          this.currentSongIndex = 0; // Reiniciar al principio
+          console.log('🔄 Reiniciando índice secuencial al principio');
+        }
+        selectedSong = filteredSongs[this.currentSongIndex];
+        console.log('📋 Selección secuencial:', {
+          currentIndex: this.currentSongIndex,
+          posicionEnAdmin: this.currentSongIndex + 1, // 🔧 NUEVO: Posición visual (base-1) como se ve en el admin
+          totalSongs: filteredSongs.length,
+          selectedTitle: selectedSong?.canciones?.titulo || selectedSong?.titulo
+        });
+      }
+      
+      // ✅ NUEVO MODELO: Verificación simplificada sin canal_id
+      const finalChannelCheck = true; // Siempre válido si viene de playlist del canal
+      
+      console.log('✅ Canción seleccionada desde playlist:', {
+        playlist: playlist.nombre,
+        playlistType: playlist.tipo,
+        songTitle: selectedSong?.canciones?.titulo || selectedSong?.titulo || 'Sin título',
+        songArtist: selectedSong?.canciones?.artista || selectedSong?.artista || 'Sin artista',
+        songChannelId: selectedSong?.canciones?.canal_id,
+        currentChannelId,
+        selectionMethod: playlist.orden,
+        indiceArray: this.currentSongIndex, // 🔧 NUEVO: Índice en el array (base-0)
+        posicionAdmin: this.currentSongIndex + 1, // 🔧 NUEVO: Posición como se ve en el admin (base-1)
+        posicionDB: selectedSong?.posicion || 'N/A', // 🔧 NUEVO: Posición real en la base de datos
+        finalChannelCheck: finalChannelCheck ? '✅ CORRECTO' : '❌ INCORRECTO'
+      });
+      
+              // PROTECCIÓN ABSOLUTA - Si la canción final no es del canal correcto, ERROR CRÍTICO
+        if (!finalChannelCheck) {
+          console.error('🚨 ERROR CRÍTICO: Canción del canal incorrecto a punto de ser retornada!', {
+            songTitle: selectedSong?.canciones?.titulo,
+            songChannelId: selectedSong?.canciones?.canal_id,
+            currentChannelId,
+            playlistName: playlist.nombre,
+            ACCION: 'SELECCIÓN BLOQUEADA + LIMPIEZA DE EMERGENCIA'
+          });
+          
+          // Activar limpieza de emergencia
+          setTimeout(() => {
+            this.emergencyChannelCleanup(`Canción incorrecta detectada: ${selectedSong?.canciones?.titulo} (canal ${selectedSong?.canciones?.canal_id} ≠ ${currentChannelId})`);
+          }, 100);
+          
+          // NO retornar la canción incorrecta
+          return null;
+        }
+      
+      // 🔧 NUEVO: Agregar la canción seleccionada al historial para evitar futuras repeticiones
+      this.addSongToHistory(selectedSong);
+      
+      return selectedSong;
+      
+    } catch (error) {
+      console.error('❌ Error cargando playlist:', error);
+      console.error('🔍 DEBUG - Error detalles:', {
+        playlistId: playlist?.id,
+        playlistName: playlist?.nombre,
+        errorMessage: error.message,
+        errorStack: error.stack
+      });
+      return null;
+    }
+  }
+
+  /**
+   * FUNCIÓN DE EMERGENCIA: Limpiar completamente el estado cuando se detectan errores de canal
+   */
+  async emergencyChannelCleanup(reason) {
+    console.error('🚨 ACTIVANDO LIMPIEZA DE EMERGENCIA:', reason);
+    
+    // 1. Limpiar estado del reproductor de audio
+    const cleaned = audioPlayer.forceCleanIncorrectPreloadedSong();
+    if (cleaned) {
+      console.log('🧹 Canción precargada incorrecta eliminada');
+    }
+    
+    // 2. Limpiar queue actual
+    this.playQueue = [];
+    this.currentSong = null;
+    this.currentSongIndex = 0;
+    
+    // 3. Forzar recarga de playlists del canal
+    console.log('🔄 Forzando recarga de playlists del canal actual...');
+    await this.loadChannelPlaylists();
+    
+    // 4. Seleccionar nueva canción limpia
+    console.log('🎯 Seleccionando nueva canción después de limpieza...');
+    const newSong = await this.selectNextSong();
+    
+    if (newSong) {
+      await this.loadAndPlaySong(newSong);
+      console.log('✅ Canción limpia cargada exitosamente');
+    } else {
+      console.error('❌ No se pudo cargar canción después de limpieza de emergencia');
+    }
+  }
+
+  /**
+   * Cargar canción sin reproducir automáticamente
+   */
+  async loadSongOnly(song) {
+    if (!song) return false;
+
+    try {
+      const songTitle = song?.canciones?.titulo || 'Sin título';
+      console.log('🎵 Cargando canción:', songTitle);
+      
+      // Cargar canción en el reproductor
+      const success = await audioPlayer.loadSong(song, false);
+      
+      if (success) {
+        this.currentSong = song;
+        
+        // ✅ OPTIMIZACIÓN: NO precarga automática - solo just-in-time cuando sea necesario
+        console.log('📼 Canción cargada SIN precarga automática (just-in-time activado)');
+        
+        return true;
+      } else {
+        console.warn('⚠️ Error cargando canción');
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('❌ Error en loadSongOnly:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Cargar y reproducir canción seleccionada
+   */
+  async loadAndPlaySong(song) {
+    if (!song) return false;
+
+    // 🔧 CORREGIDO: Implementar debouncing para evitar cambios excesivos
+    const now = Date.now();
+    const timeSinceLastChange = now - this.lastSongChangeTime;
+    
+    if (timeSinceLastChange < this.minSongChangeInterval) {
+      console.log(`⏱️ Cambio de canción demasiado rápido (${timeSinceLastChange}ms < ${this.minSongChangeInterval}ms) - ignorando`);
+      return false;
+    }
+
+    // Si requerimos interacción del usuario, solo cargar
+    if (this.requiresUserInteraction) {
+      console.log('🚫 Se requiere interacción del usuario, solo cargando canción');
+      return await this.loadSongOnly(song);
+    }
+
+    try {
+      const songTitle = song?.canciones?.titulo || 'Sin título';
+      console.log('🎵 Cargando y reproduciendo:', songTitle);
+      
+      // 🔧 CORREGIDO: Actualizar timestamp del último cambio
+      this.lastSongChangeTime = now;
+      
+      // Cargar canción en el reproductor
+      const success = await audioPlayer.loadSong(song, false);
+      
+      if (success) {
+        this.currentSong = song;
+        
+        // 🔧 SISTEMA HÍBRIDO: Precarga automática si ya está activada, just-in-time si no
+        if (this.smartPreloadEnabled) {
+          console.log('🎯 Canción cargada - Precarga automática ACTIVADA');
+          // 🔧 NUEVO: Precarga con manejo de errores mejorado
+          setTimeout(async () => {
+            try {
+              await this.preloadNextSong();
+            } catch (preloadError) {
+              console.log('ℹ️ Error en precarga automática (no crítico):', preloadError.message);
+              // No afectar la reproducción por errores de precarga
+            }
+          }, 1500); // Precarga automática tras carga exitosa
+        } else {
+          console.log('📼 Canción cargada - Just-in-time STANDBY (esperando primera reproducción)');
+        }
+        
+        // 🔧 MEJORADO: Iniciar reproducción automáticamente cuando se carga una nueva canción
+        // desde handleSongEnd (transición automática)
+        if (!this.requiresUserInteraction) {
+          console.log('▶️ Iniciando reproducción automática de nueva canción');
+          await audioPlayer.play();
+        } else {
+          console.log('ℹ️ Canción cargada pero esperando interacción del usuario para reproducir');
+        }
+        
+        return true;
+      } else {
+        console.warn('⚠️ Error cargando canción, intentando siguiente...');
+        if (!this.isInErrorState) {
+          return await this.handleSongEnd();
+        }
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('❌ Error en loadAndPlaySong:', error);
+      if (!this.isInErrorState) {
+        return await this.handleSongEnd();
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Precargar siguiente canción para crossfade
+   */
+  async preloadNextSong() {
+    try {
+      // 🔧 NUEVO: Verificar si el crossfade está habilitado antes de intentar precargar
+      const audioState = audioPlayer.getState();
+      if (!audioState.crossfadeEnabled) {
+        console.log('ℹ️ Precarga saltada - crossfade desactivado (no es necesario precargar)');
+        return;
+      }
+      
+      // Determinar razón de la precarga
+      const preloadReason = this.smartPreloadEnabled ? 'AUTO (usuario activo)' : 'JUST-IN-TIME';
+      console.log(`🔄 Iniciando precarga (${preloadReason})...`);
+      
+      // No precargar si estamos en estado de error
+      if (this.isInErrorState || this.requiresUserInteraction) {
+        console.log('⏸️ Precarga pausada: estado de error o se requiere interacción');
+        return;
+      }
+
+      // Throttling para evitar bucles de precarga
+      const now = Date.now();
+      if (this.lastPreloadAttempt && (now - this.lastPreloadAttempt) < 3000) {
+        console.log('⏸️ Precarga throttled - demasiados intentos recientes');
+        return;
+      }
+      this.lastPreloadAttempt = now;
+      
+      // Si ya hay siguiente canción precargada, no hacer nada
+      if (audioState.nextSongLoaded) {
+        console.log('📀 Siguiente canción ya está precargada');
+        return;
+      }
+
+      const nextSong = await this.peekNextSong();
+      if (!nextSong) {
+        console.log('📭 No hay siguiente canción para precargar');
+        return;
+      }
+
+      const nextTitle = nextSong?.canciones?.titulo || nextSong?.titulo || 'Sin título';
+      console.log(`🎵 Precargando (${preloadReason}):`, nextTitle);
+      
+      const success = await audioPlayer.preloadNextSong(nextSong);
+      if (success) {
+        console.log(`✅ Precarga ${preloadReason} exitosa:`, nextTitle);
+        // Resetear contador de errores si la precarga fue exitosa
+        this.preloadErrorCount = 0;
+      } else {
+        // 🔧 NUEVO: Manejo inteligente de errores de precarga
+        console.warn(`⚠️ Error en precarga ${preloadReason}:`, nextTitle);
+        
+        // 🔧 MEJORADO: Verificar si el crossfade está desactivado en audioPlayerService
+        const audioState = audioPlayer.getState();
+        if (!audioState.crossfadeEnabled) {
+          console.log('ℹ️ Error de precarga ignorado - crossfade desactivado (comportamiento normal)');
+          this.preloadErrorCount = 0; // Resetear contador ya que es un error esperado
+          return;
+        }
+        
+        // Incrementar contador de errores de precarga solo para errores reales
+        this.preloadErrorCount = (this.preloadErrorCount || 0) + 1;
+        if (this.preloadErrorCount >= 3) {
+          console.warn('🚫 Demasiados errores de precarga, pausando precargas por 30 segundos');
+          this.lastPreloadAttempt = now + 25000; // Pausar 30 segundos adicionales
+          this.preloadErrorCount = 0;
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Error en preloadNextSong:', error);
+      // No propagar el error para evitar bucles
+      this.preloadErrorCount = (this.preloadErrorCount || 0) + 1;
+    }
+  }
+
+  /**
+   * Obtener siguiente canción sin avanzar índice (para precarga)
+   */
+  async peekNextSong() {
+    try {
+      // Lógica simplificada para obtener la siguiente canción
+      // Sin modificar el estado actual del AutoDJ
+      
+      const currentChannelId = this.currentChannel?.id;
+      if (!currentChannelId) {
+        console.warn('⚠️ No hay canal actual para peekNextSong');
+        return null;
+      }
+      
+      // Si tenemos una playlist actual con canciones, usar la siguiente de esa playlist
+      if (this.currentPlaylist && this.playQueue && this.playQueue.length > 0) {
+        const nextIndex = (this.currentSongIndex + 1) % this.playQueue.length;
+        const nextSong = this.playQueue[nextIndex];
+        
+        // VERIFICACIÓN ESTRICTA que la canción pertenezca al canal actual
+        const channelMatch = nextSong?.canciones?.canal_id === currentChannelId;
+        
+        console.log('🔍 peekNextSong - Verificando siguiente de playlist actual:', {
+          title: nextSong?.canciones?.titulo,
+          songChannelId: nextSong?.canciones?.canal_id,
+          currentChannelId,
+          match: channelMatch ? '✅ CORRECTO' : '❌ INCORRECTO',
+          playlist: this.currentPlaylist?.nombre
+        });
+        
+        if (channelMatch) {
+          console.log('✅ peekNextSong - Siguiente de playlist actual autorizada');
+          return nextSong;
+        } else {
+          console.error('🚫 ERROR: peekNextSong - Canción de playlist NO pertenece al canal actual:', {
+            title: nextSong?.canciones?.titulo,
+            songChannelId: nextSong?.canciones?.canal_id,
+            currentChannelId,
+            playlistName: this.currentPlaylist?.nombre,
+            PROBLEMA: 'Playlist contaminada con canciones de otros canales'
+          });
+          
+          // Activar limpieza de emergencia por playlist contaminada
+          setTimeout(() => {
+            this.emergencyChannelCleanup(`Playlist contaminada detectada: ${this.currentPlaylist?.nombre} contiene canción ${nextSong?.canciones?.titulo} del canal ${nextSong?.canciones?.canal_id}`);
+          }, 100);
+        }
+      }
+
+      // Si no hay playlist actual o se acabó, intentar seleccionar de rotación
+      if (this.rotationPlaylists && this.rotationPlaylists.length > 0) {
+        // Seleccionar playlist aleatoria ponderada (simplificado)
+        const randomPlaylist = this.rotationPlaylists[Math.floor(Math.random() * this.rotationPlaylists.length)];
+        
+        console.log('🔍 peekNextSong - Cargando de playlist de rotación:', {
+          playlistName: randomPlaylist.nombre,
+          playlistId: randomPlaylist.id
+        });
+        
+        // Cargar canciones de esa playlist
+        const songs = await songsApi.getPlaylistSongs(randomPlaylist.id);
+        if (songs && songs.length > 0) {
+          // ✅ NUEVO MODELO: Canciones globales, no filtrar por canal_id
+          const filteredSongs = songs.filter(song => {
+            // Solo verificaciones básicas de integridad
+            const hasValidData = song?.canciones?.titulo && song?.canciones?.url_s3;
+            
+            if (!hasValidData) {
+              console.warn('🚫 peekNextSong - Canción filtrada (datos incompletos):', {
+                songTitle: song?.canciones?.titulo || 'Sin título',
+                hasUrl: !!song?.canciones?.url_s3
+              });
+            }
+            
+            return hasValidData;
+          });
+          
+          console.log('📊 peekNextSong - Filtrado de canciones:', {
+            originalCount: songs.length,
+            filteredCount: filteredSongs.length,
+            playlistName: randomPlaylist.nombre
+          });
+          
+          if (filteredSongs.length > 0) {
+            const randomSong = filteredSongs[Math.floor(Math.random() * filteredSongs.length)];
+            
+            // ✅ NUEVO MODELO: Verificación simplificada para peekNextSong
+            const finalChannelCheck = true; // Siempre válido si viene de playlist del canal
+            
+            console.log('✅ peekNextSong - Canción seleccionada:', {
+              title: randomSong?.canciones?.titulo,
+              channelId: randomSong?.canciones?.canal_id,
+              currentChannelId,
+              playlist: randomPlaylist.nombre,
+              finalChannelCheck: finalChannelCheck ? '✅ CORRECTO' : '❌ INCORRECTO'
+            });
+            
+            // PROTECCIÓN ABSOLUTA también en peekNextSong
+            if (!finalChannelCheck) {
+              console.error('🚨 ERROR CRÍTICO en peekNextSong: Canción del canal incorrecto!', {
+                songTitle: randomSong?.canciones?.titulo,
+                songChannelId: randomSong?.canciones?.canal_id,
+                currentChannelId,
+                playlistName: randomPlaylist.nombre,
+                ACCION: 'PEEK BLOQUEADO + LIMPIEZA DE EMERGENCIA'
+              });
+              
+              // Activar limpieza de emergencia
+              setTimeout(() => {
+                this.emergencyChannelCleanup(`peekNextSong detectó canción incorrecta: ${randomSong?.canciones?.titulo} (canal ${randomSong?.canciones?.canal_id} ≠ ${currentChannelId})`);
+              }, 100);
+              
+              return null;
+            }
+            
+            return randomSong;
+          } else {
+            console.warn('⚠️ peekNextSong - No hay canciones válidas del canal actual en playlist:', randomPlaylist.nombre);
+          }
+        }
+      }
+
+      console.warn('📭 peekNextSong - No se pudo encontrar siguiente canción del canal actual');
+      return null;
+    } catch (error) {
+      console.warn('⚠️ Error en peekNextSong:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Guardar estado actual para peek
+   */
+  saveCurrentState() {
+    return {
+      currentSongIndex: this.currentSongIndex,
+      globalRotationCounter: this.globalRotationCounter,
+      isInInterrupt: this.isInInterrupt,
+      interruptType: this.interruptType
+    };
+  }
+
+  /**
+   * Restaurar estado después de peek
+   */
+  restoreCurrentState(state) {
+    this.currentSongIndex = state.currentSongIndex;
+    this.globalRotationCounter = state.globalRotationCounter;
+    this.isInInterrupt = state.isInInterrupt;
+    this.interruptType = state.interruptType;
+  }
+
+  /**
+   * Manejar fin de canción y avanzar
+   */
+  async handleSongEnd() {
+    // 🔧 NUEVO: Protección contra ejecuciones concurrentes
+    if (this.isHandlingSongEnd) {
+      console.log('⏸️ handleSongEnd ya en ejecución, saltando...');
+      return;
+    }
+    
+    this.isHandlingSongEnd = true;
+    
+    try {
+      // No procesar si estamos en estado de error o requerimos interacción
+      if (this.isInErrorState || this.requiresUserInteraction) {
+        console.log('⏸️ handleSongEnd pausado por estado de error o requerimiento de interacción');
+        return;
+      }
+      
+      console.log('🎵 AutoDJ: handleSongEnd iniciado');
+      
+      // Avanzar índice de canción actual
+      this.currentSongIndex++;
+      
+      // Verificar si debe terminar interrupción
+      if (this.isInInterrupt && this.shouldEndInterrupt()) {
+        console.log('🔚 Finalizando interrupción, volviendo a rotación general');
+        this.endInterrupt();
+      }
+      
+      // Seleccionar siguiente canción
+      const nextSong = await this.selectNextSong();
+      if (nextSong) {
+        await this.loadAndPlaySong(nextSong);
+      } else {
+        console.error('❌ No se pudo seleccionar siguiente canción');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error en handleSongEnd:', error);
+      
+      // Evitar bucles infinitos en handleSongEnd
+      this.errorCount++;
+      if (this.errorCount >= this.maxErrors) {
+        this.stopErrorLoop();
+      }
+    } finally {
+      // 🔧 NUEVO: Siempre resetear el flag al finalizar
+      this.isHandlingSongEnd = false;
+    }
+  }
+
+  /**
+   * Verificar si debe terminar la interrupción actual
+   */
+  shouldEndInterrupt() {
+    if (!this.isInInterrupt || !this.currentPlaylist) return false;
+    
+    const playlist = this.currentPlaylist;
+    
+    if (playlist.tipo === 'intervalo') {
+      // Para intervalos, terminar según estilo_reproduccion
+      if (playlist.estilo_reproduccion === 'aleatorio') {
+        return true; // Solo una canción
+      } else {
+        return this.currentSongIndex >= this.playQueue.length; // Todas las canciones
+      }
+    }
+    
+    if (playlist.tipo === 'agendada') {
+      // 🔧 MEJORADO: Lógica específica para interrupciones agendadas
+      console.log('📅 Verificando fin de interrupción agendada:', {
+        playlist: playlist.nombre,
+        currentSongIndex: this.currentSongIndex,
+        playQueueLength: this.playQueue.length,
+        estilo_reproduccion: playlist.estilo_reproduccion
+      });
+      
+      if (playlist.estilo_reproduccion === 'aleatorio') {
+        // Si es aleatorio, solo una canción
+        console.log('🎲 Interrupción agendada aleatoria - terminando después de una canción');
+        return true;
+      } else {
+        // Si es secuencial, todas las canciones de la playlist
+        const shouldEnd = this.currentSongIndex >= this.playQueue.length;
+        console.log('📋 Interrupción agendada secuencial:', {
+          shouldEnd,
+          currentSongIndex: this.currentSongIndex,
+          playQueueLength: this.playQueue.length
+        });
+        return shouldEnd;
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * Guardar estado de rotación antes de interrupción
+   */
+  saveRotationState() {
+    this.previousRotationState = {
+      playlist: this.currentPlaylist,
+      songIndex: this.currentSongIndex,
+      playQueue: [...this.playQueue]
+    };
+    
+    console.log('💾 Estado de rotación guardado');
+  }
+
+  /**
+   * Restaurar estado de rotación después de interrupción
+   */
+  restoreRotationState() {
+    if (this.previousRotationState) {
+      console.log('🔄 Restaurando estado de rotación');
+      // No restaurar exactamente, sino continuar con algoritmo normal
+      this.isInInterrupt = false;
+      this.interruptType = null;
+      this.previousRotationState = null;
+    }
+  }
+
+  /**
+   * Finalizar interrupción
+   */
+  endInterrupt() {
+    console.log('🔚 Finalizando interrupción:', this.interruptType);
+    
+    // 🔧 CRÍTICO: Si es interrupción de intervalo, limpiar cola para evitar duplicaciones
+    if (this.interruptType === 'interval') {
+      console.log('🧹 Limpiando cola de intervalos tras finalizar interrupción de intervalo');
+      this.pendingIntervalQueue = [];
+    }
+    
+    this.isInInterrupt = false;
+    this.interruptType = null;
+    this.currentPlaylist = null;
+    this.playQueue = [];
+    this.currentSongIndex = 0;
+    this.previousRotationState = null;
+    
+    // Reportar estado final
+    if (this.pendingIntervalQueue.length > 0) {
+      console.log('📦 Intervalos en cola restantes:', this.pendingIntervalQueue.length);
+    }
+  }
+
+  /**
+   * Iniciar timers de verificación automática
+   */
+  startTimers() {
+    this.stopTimers(); // Limpiar anteriores
+    
+    // Timer de reloj local cada segundo para detectar transiciones de franja horaria
+    this.clockTimer = setInterval(() => {
+      if (this.isActive) {
+        this.checkTimeFrameTransitions();
+      }
+    }, 1000);
+    
+    console.log('⏰ Timers iniciados (reloj local: 1s, sync: 5min)');
+  }
+
+  /**
+   * Detener timers
+   */
+  stopTimers() {
+    if (this.clockTimer) {
+      clearInterval(this.clockTimer);
+      this.clockTimer = null;
+    }
+  }
+
+  /**
+   * 🔧 NUEVO: Verificar playlists agendadas para interrupciones con crossfade
+   */
+  async checkScheduledPlaylistsForInterruption() {
+    // No verificar si estamos en estado de error o ya en una interrupción
+    if (this.isInErrorState || this.isInInterrupt) {
+      return;
+    }
+    
+    // Protección: no ejecutar si hay selección de canción en curso
+    if (this.isHandlingSongEnd) {
+      console.log('⏸️ Verificación de agendadas pospuesta - selección de canción en curso');
+      return;
+    }
+    
+    try {
+      const now = new Date();
+      const currentTime = now.getHours() * 60 + now.getMinutes();
+      const currentDate = now.toISOString().split('T')[0];
+      
+      console.log('📅 Verificando playlists agendadas para interrupción:', {
+        currentDate,
+        currentTime: `${Math.floor(currentTime / 60)}:${currentTime % 60}`,
+        totalScheduled: this.scheduledPlaylists.length
+      });
+      
+      if (this.scheduledPlaylists.length === 0) {
+        return;
+      }
+      
+      for (const playlist of this.scheduledPlaylists) {
+        console.log('🔍 Analizando playlist agendada para interrupción:', {
+          nombre: playlist.nombre,
+          fecha: playlist.fecha,
+          hora: playlist.hora,
+          repetir_programacion: playlist.repetir_programacion,
+          activa: playlist.activa,
+          puede_interrumpirse: playlist.puede_interrumpirse
+        });
+        
+        // Solo verificar playlists que pueden interrumpir
+        if (playlist.puede_interrumpirse && this.isScheduledPlaylistActive(playlist, now, currentTime, currentDate)) {
+          console.log('🎭 ACTIVANDO INTERRUPCIÓN AGENDADA CON CROSSFADE:', playlist.nombre);
+          
+          // Guardar estado de rotación
+          this.saveRotationState();
+          this.isInInterrupt = true;
+          this.interruptType = 'scheduled';
+          
+          // Seleccionar canción de la playlist agendada
+          const selectedSong = await this.selectSongFromScheduledPlaylist(playlist);
+          
+          if (selectedSong) {
+            console.log('🎵 Canción de interrupción seleccionada:', selectedSong?.canciones?.titulo || selectedSong?.titulo);
+            
+            // Iniciar crossfade de interrupción
+            const success = await audioPlayer.startInterruptionCrossfade(selectedSong);
+            
+            if (success) {
+              console.log('✅ Crossfade de interrupción iniciado exitosamente');
+              this.currentSong = selectedSong;
+              this.currentPlaylist = playlist;
+              return; // Solo una interrupción a la vez
+            } else {
+              console.warn('⚠️ Fallo en crossfade de interrupción, restaurando estado');
+              this.restoreRotationState();
+            }
+          } else {
+            console.warn('⚠️ No se pudo seleccionar canción de interrupción, restaurando estado');
+            this.restoreRotationState();
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Error verificando playlists agendadas para interrupción:', error);
+    }
+  }
+
+  /**
+   * 🔧 NUEVO: Seleccionar canción de playlist agendada para interrupción
+   */
+  async selectSongFromScheduledPlaylist(playlist) {
+    try {
+      console.log('📅 Seleccionando canción de playlist agendada para interrupción:', playlist.nombre);
+      
+      // Cargar canciones de la playlist
+      const songs = await songsApi.getPlaylistSongs(playlist.id);
+      
+      if (!songs || songs.length === 0) {
+        console.warn('⚠️ Playlist agendada vacía:', playlist.nombre);
+        return null;
+      }
+      
+      // Filtrar canciones del canal actual
+      const currentChannelId = this.currentChannel?.id;
+      const filteredSongs = songs.filter(song => {
+        const songChannelId = song?.canciones?.canal_id;
+        return songChannelId === currentChannelId;
+      });
+      
+      if (filteredSongs.length === 0) {
+        console.error('❌ No hay canciones válidas del canal actual en playlist agendada:', playlist.nombre);
+        return null;
+      }
+      
+      // Seleccionar canción según orden configurado
+      let selectedSong;
+      
+      if (playlist.orden === 'aleatorio') {
+        const randomIndex = Math.floor(Math.random() * filteredSongs.length);
+        selectedSong = filteredSongs[randomIndex];
+      } else {
+        // Selección secuencial
+        if (this.currentSongIndex >= filteredSongs.length) {
+          this.currentSongIndex = 0;
+        }
+        selectedSong = filteredSongs[this.currentSongIndex];
+      }
+      
+      console.log('✅ Canción de interrupción seleccionada:', {
+        playlist: playlist.nombre,
+        songTitle: selectedSong?.canciones?.titulo || selectedSong?.titulo,
+        songArtist: selectedSong?.canciones?.artista || selectedSong?.artista
+      });
+      
+      return selectedSong;
+      
+    } catch (error) {
+      console.error('❌ Error seleccionando canción de playlist agendada:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Verificación periódica de scheduling
+   */
+  async checkScheduling() {
+    // No hacer nada si estamos en estado de error
+    if (this.isInErrorState) return;
+    
+    // Protección: no ejecutar si hay selección de canción en curso
+    if (this.isHandlingSongEnd) {
+      console.log('⏸️ Verificación de scheduling pospuesta - selección de canción en curso');
+      return;
+    }
+    try {
+      console.log('🕐 Verificación de scheduling automática');
+      // 🔧 NUEVO: Limpiar playlists ejecutadas si cambió de día
+      this.cleanupExecutedPlaylists();
+      // 🔧 NUEVO: Recargar playlists del canal para detectar cambios
+      if (this.currentChannel) {
+        console.log('🔄 Recargando playlists del canal para detectar cambios...');
+        await this.loadChannelPlaylists();
+        // Log de estadísticas actualizadas
+        console.log('📊 Playlists actualizadas:', {
+          rotacion: this.rotationPlaylists.length,
+          intervalo: this.intervalPlaylists.length,
+          agendada: this.scheduledPlaylists.length
+        });
+      }
+    } catch (error) {
+      console.warn('⚠️ Error en verificación de scheduling:', error);
+    }
+  }
+
+  /**
+   * Limpiar playlists ejecutadas cuando cambie de día
+   */
+  cleanupExecutedPlaylists() {
+    const today = new Date().toISOString().split('T')[0];
+    const currentKeys = Array.from(this.executedScheduledPlaylists);
+    
+    for (const key of currentKeys) {
+      const keyDate = key.split('_')[1]; // Obtener fecha del key
+      if (keyDate !== today) {
+        this.executedScheduledPlaylists.delete(key);
+        console.log('🧹 Limpiando playlist ejecutada de otro día:', key);
+      }
+    }
+  }
+
+  /**
+   * Detener bucle infinito de errores
+   */
+  stopErrorLoop() {
+    console.log('🛑 Deteniendo bucle de errores');
+    this.isActive = false;
+    this.stopTimers();
+    
+    // Mostrar mensaje al usuario
+    console.warn('🚫 AutoDJ pausado debido a errores. Haz clic en el botón de reproducción para continuar.');
+  }
+
+  /**
+   * Resetear estado de error
+   */
+  resetErrorState() {
+    console.log('🔄 Reseteando estado de error');
+    this.errorCount = 0;
+    this.lastErrorTime = 0;
+    this.isInErrorState = false;
+    // No resetear requiresUserInteraction aquí - debe hacerse manualmente
+  }
+
+  /**
+   * Permitir reproducción después de interacción del usuario
+   */
+  allowPlaybackAfterInteraction() {
+    console.log('🎯 Interacción del usuario recibida - permitiendo reproducción');
+    this.requiresUserInteraction = false;
+    this.resetErrorState();
+  }
+
+  /**
+   * Obtener estado actual del AutoDJ
+   */
+  getState() {
+    const audioState = audioPlayer.getState();
+    
+    return {
+      // Estado general
+      isActive: this.isActive,
+      currentChannel: this.currentChannel,
+      
+      // Estado de reproducción
+      currentPlaylist: this.currentPlaylist,
+      currentSong: this.currentSong,
+      isPlaying: audioState.isPlaying,
+      
+      // Contadores
+      globalRotationCounter: this.globalRotationCounter,
+      
+      // Estado de interrupciones
+      isInInterrupt: this.isInInterrupt,
+      interruptType: this.interruptType,
+      
+      // Estado de errores
+      isInErrorState: this.isInErrorState,
+      requiresUserInteraction: this.requiresUserInteraction,
+      errorCount: this.errorCount,
+      
+      // 🔧 SISTEMA HÍBRIDO: Control de precarga inteligente
+      userHasStartedPlaying: this.userHasStartedPlaying,
+      smartPreloadEnabled: this.smartPreloadEnabled,
+      
+      // Estadísticas de playlists
+      playlistsLoaded: {
+        rotacion: this.rotationPlaylists.length,
+        intervalo: this.intervalPlaylists.length,
+        agendada: this.scheduledPlaylists.length
+      },
+      
+      // Estado del reproductor
+      audioState: audioState
+    };
+  }
+
+  /**
+   * Destruir servicio y limpiar recursos
+   */
+  destroy() {
+    console.log('🗑️ Destruyendo AutoDJ Service');
+    
+    this.stop();
+    this.clearAudioEvents();
+    this.cleanupRealtimeSubscriptions();
+    this.resetState();
+  }
+}
+
+// Exportar singleton
+const autoDj = new AutoDjService();
+export default autoDj; 

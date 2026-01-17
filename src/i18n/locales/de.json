@@ -1,0 +1,108 @@
+{
+  "common": {
+    "loading": "Lädt...",
+    "error": "Fehler",
+    "success": "Erfolg",
+    "cancel": "Abbrechen",
+    "save": "Speichern",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "close": "Schließen",
+    "confirm": "Bestätigen",
+    "back": "Zurück",
+    "next": "Weiter",
+    "previous": "Zurück",
+    "search": "Suchen",
+    "filter": "Filtern",
+    "actions": "Aktionen",
+    "unknownChannel": "Unbekannter Kanal",
+    "user": "Benutzer"
+  },
+  "nav": {
+    "player": "Player",
+    "channels": "Kanäle",
+    "content": "Inhalt",
+    "history": "Verlauf",
+    "support": "Support",
+    "createAd": "Anzeige erstellen",
+    "settings": "Einstellungen",
+    "logout": "Abmelden",
+    "dashboard": "Admin-Dashboard"
+  },
+  "player": {
+    "loading": "Lädt...",
+    "previousChannel": "Vorheriger Kanal",
+    "nextChannel": "Nächster Kanal",
+    "content": "Inhalt",
+    "scheduledContentPlaying": "Geplante Inhalte werden abgespielt",
+    "manualPlayback": "Manuelle Wiedergabe",
+    "musicVolume": "Musiklautstärke",
+    "contentVolume": "Inhaltslautstärke",
+    "mute": "Stumm schalten",
+    "unmute": "Lautstärke wiederherstellen",
+    "lockedDuringManual": "Während der manuellen Wiedergabe gesperrt"
+  },
+  "auth": {
+    "login": "Anmelden",
+    "signIn": "Anmelden",
+    "signingIn": "Anmeldung...",
+    "register": "Registrieren",
+    "email": "E-Mail oder Benutzername",
+    "password": "Passwort",
+    "showPassword": "Anzeigen",
+    "hidePassword": "Verbergen",
+    "forgotPassword": "Passwort vergessen?",
+    "noAccount": "Haben Sie kein Konto?",
+    "rememberCredentials": "Anmeldedaten speichern und automatisch starten",
+    "continueWithGoogle": "Mit Google fortfahren",
+    "continueWithApple": "Mit Apple fortfahren",
+    "invalidCredentials": "Falsche E-Mail oder falsches Passwort.",
+    "emailNotConfirmed": "Bitte bestätigen Sie Ihre E-Mail vor der Anmeldung.",
+    "loginError": "Anmeldefehler",
+    "googleError": "Google-Fehler",
+    "appleError": "Apple-Fehler"
+  },
+  "password": {
+    "changePassword": "Passwort ändern",
+    "recoverPassword": "Passwort wiederherstellen",
+    "currentPassword": "Aktuelles Passwort",
+    "newPassword": "Neues Passwort",
+    "confirmPassword": "Neues Passwort bestätigen",
+    "email": "E-Mail",
+    "username": "Benutzername",
+    "forgotCurrentPassword": "Ich habe mein aktuelles Passwort vergessen",
+    "passwordRecoveryInstructions": "Wir senden Ihnen eine E-Mail mit Anweisungen zum Zurücksetzen Ihres Passworts",
+    "enterCurrentPassword": "Geben Sie Ihren Benutzernamen und Ihr aktuelles Passwort ein, um es zu ändern",
+    "detectingUserType": "Benutzertyp wird erkannt...",
+    "passwordMinLength": "Das Passwort muss mindestens 6 Zeichen lang sein",
+    "passwordsDoNotMatch": "Die neuen Passwörter stimmen nicht überein",
+    "passwordMustBeDifferent": "Das neue Passwort muss sich vom aktuellen unterscheiden",
+    "passwordChanged": "Passwort erfolgreich aktualisiert",
+    "recoveryEmailSent": "Eine E-Mail mit Anweisungen zum Zurücksetzen Ihres Passworts wurde gesendet. Überprüfen Sie Ihren Posteingang.",
+    "sending": "Wird gesendet...",
+    "changing": "Wird geändert...",
+    "sendEmail": "E-Mail senden",
+    "changePasswordButton": "Passwort ändern",
+    "skipPasswordWarning": "Warnung: Das Ändern des Passworts ohne Überprüfung des aktuellen ist weniger sicher. Verwenden Sie es nur, wenn Sie Ihr Passwort wirklich vergessen haben.",
+    "legacyUserInfo": "Legacy-Benutzer: Wenn Sie Ihr Passwort vergessen, können Sie das Kontrollkästchen aktivieren. Bei Problemen kontaktieren Sie einen Administrator.",
+    "supabaseUserInfo": "Supabase Auth-Benutzer: Eine E-Mail mit einem Link zum Zurücksetzen Ihres Passworts wird gesendet. Überprüfen Sie Ihren Posteingang und Spam."
+  },
+  "channels": {
+    "title": "Kanäle",
+    "selectChannel": "Kanal auswählen",
+    "noChannels": "Keine Kanäle verfügbar",
+    "loadingChannels": "Kanäle werden geladen...",
+    "channelError": "Fehler beim Laden der Kanäle"
+  },
+  "footer": {
+    "version": "Ondeon Smart"
+  },
+  "language": {
+    "selectLanguage": "Sprache auswählen",
+    "spanish": "Spanisch",
+    "english": "Englisch",
+    "french": "Französisch",
+    "german": "Deutsch"
+  }
+}
+
