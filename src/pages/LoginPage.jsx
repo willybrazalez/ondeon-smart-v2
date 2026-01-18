@@ -11,36 +11,12 @@ import { X, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
 import WaveBackground from '@/components/player/WaveBackground';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { useElectronCredentials } from '@/hooks/useElectronCredentials';
 import { authApi } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import logger from '@/lib/logger';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getIsWebPlatform } from '@/App';
-import { ROLES } from '@/hooks/useRole';
-
-// 🌐 Helper para determinar a dónde navegar después del login según rol y plataforma
-const getPostLoginRoute = (userRoleId) => {
-  const isWeb = getIsWebPlatform();
-  
-  // En desktop (Electron), siempre ir al reproductor
-  if (!isWeb) {
-    return '/';
-  }
-  
-  // En web, redirigir según el rol
-  switch (userRoleId) {
-    case ROLES.BASICO: // rol_id = 1
-      return '/solo-desktop';
-    case ROLES.GESTOR: // rol_id = 2
-      return '/gestor';
-    case ROLES.ADMINISTRADOR: // rol_id = 3
-      return '/admin/dashboard';
-    default:
-      // Por defecto, si no conocemos el rol, ir a solo-desktop (más seguro)
-      return '/solo-desktop';
-  }
-};
+// Ruta post-login simplificada - todos los usuarios van al reproductor
+const getPostLoginRoute = () => '/';
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -51,7 +27,6 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const navigate = useNavigate();
   const { signIn, signInWithUsuarios, signInWithGoogle, signInWithApple, subscriptionRequired, clearSubscriptionRequired } = useAuth();
-  const { saveCredentials, getCredentials, setAutoStartEnabled, isElectron } = useElectronCredentials();
 
   // 🔧 NUEVO: Estado para controlar si ya se cargaron las credenciales
   const [credentialsLoaded, setCredentialsLoaded] = useState(false);

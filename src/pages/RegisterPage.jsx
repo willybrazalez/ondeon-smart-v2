@@ -9,7 +9,6 @@ import { CreditCard, Check, Loader2, User, Sparkles, Music, Mail, RefreshCw } fr
 import WaveBackground from '@/components/player/WaveBackground';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { useElectronCredentials } from '@/hooks/useElectronCredentials';
 import { supabase } from '@/lib/supabase';
 import { stripeApi, STRIPE_PRICES } from '@/lib/stripeApi';
 import logger from '@/lib/logger';
@@ -56,7 +55,6 @@ export default function RegisterPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { signUp, signInWithGoogle, signInWithApple } = useAuth();
-  const { isElectron } = useElectronCredentials();
 
   // Verificar si volvió del checkout cancelado o viene de login con registro incompleto
   useEffect(() => {
@@ -136,34 +134,13 @@ export default function RegisterPage() {
             // Si tiene suscripción activa/trial
             if (subscriptionData) {
               logger.dev('✅ Suscripción activa detectada, permitiendo acceso');
-              // En Electron, ir al reproductor
-              if (!isElectron) {
-                const targetRoute = userData.rol_id === 2 ? '/gestor' : '/';
-                navigate(targetRoute, { replace: true });
-              } else {
-                // En Electron con suscripción activa, ir al reproductor
-                navigate('/', { replace: true });
-              }
+              navigate('/', { replace: true });
               return;
             }
             
-            // Sin suscripción activa - redirigir al dashboard web para renovar
-            logger.dev('⚠️ Sin suscripción activa, redirigiendo al dashboard web');
-            
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'RegisterPage.jsx:checkSessionOnLoad:redirect',message:'redirecting to dashboard (no active sub)',data:{isElectron,willOpenExternal:isElectron && !!window.electronAPI?.openExternal},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-            // #endregion
-            
-            if (isElectron && window.electronAPI?.openExternal) {
-              const webDashboardUrl = 'https://main.dnpo8nagdov1i.amplifyapp.com/gestor';
-              logger.dev('🌐 Abriendo dashboard en navegador web:', webDashboardUrl);
-              window.electronAPI.openExternal(webDashboardUrl);
-              return;
-            }
-            
-            // En web, redirigir al dashboard normalmente
-            const targetRoute = userData.rol_id === 2 ? '/gestor' : '/';
-            navigate(targetRoute, { replace: true });
+            // Sin suscripción activa - redirigir al dashboard
+            logger.dev('⚠️ Sin suscripción activa, redirigiendo al dashboard');
+            navigate('/gestor', { replace: true });
             return;
           }
           
@@ -269,9 +246,10 @@ export default function RegisterPage() {
     </div>
   );
 
-  // 🔐 Escuchar OAuth callback desde Electron (deep link)
+  // OAuth callback - ya no usa Electron
   useEffect(() => {
-    if (!isElectron || !window.electronAPI?.onOAuthCallback) return;
+    // Este efecto ya no es necesario sin Electron
+    return;
     
     logger.dev('🔐 [OAuth Register] Configurando listener para deep links...');
     
@@ -388,9 +366,9 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      if (isElectron && window.electronAPI?.startOAuth) {
-        // En Electron: abrir navegador con flujo OAuth
-        logger.dev('🔐 [OAuth] Iniciando flujo Google en Electron para registro...');
+      // Flujo OAuth estándar web
+      if (false) {
+        // Código de Electron eliminado
         const result = await window.electronAPI.startOAuth('google');
         if (!result.success) {
           throw new Error(result.error || 'Error iniciando OAuth');
@@ -428,9 +406,9 @@ export default function RegisterPage() {
     setLoading(true);
     
     try {
-      if (isElectron && window.electronAPI?.startOAuth) {
-        // En Electron: abrir navegador con flujo OAuth
-        logger.dev('🔐 [OAuth] Iniciando flujo Apple en Electron para registro...');
+      // Flujo OAuth estándar web
+      if (false) {
+        // Código de Electron eliminado
         const result = await window.electronAPI.startOAuth('apple');
         if (!result.success) {
           throw new Error(result.error || 'Error iniciando OAuth');
