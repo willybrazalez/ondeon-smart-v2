@@ -1,15 +1,15 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { userApi, authApi } from '@/lib/api'
-import { channelsApi } from '@/lib/api'
-import optimizedPresenceService from '@/services/optimizedPresenceService'
-import lightweightHeartbeatService from '@/services/lightweightHeartbeatService'
+import { initApi, channelsApi, presenceApi, authApi } from '@/lib/api'
+import scheduledContentService from '@/services/scheduledContentService'
 import logger from '@/lib/logger'
 
-// Sistema simplificado - todos los usuarios tienen el mismo tipo de acceso
-
-// Lazy loader para playbackLogger (evita importación circular)
-let playbackLoggerLazy = null;
+// ============================================================================
+// ONDEON SMART v2 - AUTH CONTEXT
+// ============================================================================
+// Sistema de autenticación simplificado usando solo Supabase Auth.
+// Los datos del usuario se obtienen via rpc_get_user_init.
+// ============================================================================
 
 const AuthContext = createContext({})
 
@@ -22,933 +22,621 @@ export const useAuth = () => {
 }
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null)
+  // Estados principales
+  const [user, setUser] = useState(null)                    // Usuario de Supabase Auth
+  const [userData, setUserData] = useState(null)            // Datos de tabla usuarios (via rpc_get_user_init)
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [isLegacyUser, setIsLegacyUser] = useState(false)
-  const [userChannels, setUserChannels] = useState([])
+  
+  // Canales
+  const [userChannels, setUserChannels] = useState([])      // Todos los canales disponibles
+  const [recommendedChannels, setRecommendedChannels] = useState([]) // Canales recomendados por sector
   const [channelsLoading, setChannelsLoading] = useState(false)
-  const [userRole, setUserRole] = useState(null)
   
-  // 🔑 Estado de registro completo (para usuarios de Supabase Auth)
-  // null = no verificado, true = completo, false = pendiente
-  const [registroCompleto, setRegistroCompleto] = useState(null)
+  // Programaciones activas (propias + sector)
+  const [activeProgramaciones, setActiveProgramaciones] = useState([])
   
-  // 🎵 Estado global de reproducción manual (bloquea todos los controles)
+  // Estado de registro
+  const [registroCompleto, setRegistroCompleto] = useState(null) // null=no verificado, true/false
+  const [userRole, setUserRole] = useState(null)             // 'admin' | 'user'
+  
+  // Reproducción manual (bloquea controles)
   const [isManualPlaybackActive, setIsManualPlaybackActive] = useState(false)
-  const [manualPlaybackInfo, setManualPlaybackInfo] = useState(null) // {contentId, contentName, startTime, duration}
+  const [manualPlaybackInfo, setManualPlaybackInfo] = useState(null)
+  const manualPlaybackTimeoutRef = useRef(null)
   
-  // 🔧 Usar ref para mantener el ID del timeout sin depender de closures
-  const manualPlaybackTimeoutRef = React.useRef(null)
+  // Refs para evitar múltiples cargas
+  const initLoadedRef = useRef(false)
+  const lastAuthUserIdRef = useRef(null)
 
+  // ============================================================================
+  // INICIALIZACIÓN
+  // ============================================================================
+  
   useEffect(() => {
     const getInitialSession = async () => {
       setLoading(true)
 
-      // 🔧 CRÍTICO: Si estamos en proceso de logout, NO restaurar sesión
-      const isLoggingOut = sessionStorage.getItem('ondeon_logging_out');
+      // Verificar si estamos en proceso de logout
+      const isLoggingOut = sessionStorage.getItem('ondeon_logging_out')
       if (isLoggingOut) {
-        logger.dev('🚫 Proceso de logout detectado - no restaurar sesión');
-        sessionStorage.removeItem('ondeon_logging_out');
-        
-        // Limpiar TODO: legacy y Supabase/OAuth
-        localStorage.removeItem('ondeon_legacy_user');
-        localStorage.removeItem('ondeon_edge_token');
-        
-        // Limpiar todas las claves de Supabase
-        const keysToRemove = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
-            keysToRemove.push(key);
-          }
-        }
-        keysToRemove.forEach(key => {
-          localStorage.removeItem(key);
-          logger.dev(`🗑️ Limpiado: ${key}`);
-        });
-        
-        setLoading(false);
-        return;
-      }
-
-      // Verificar si hay usuario legacy en localStorage
-      const legacyUserStr = localStorage.getItem('ondeon_legacy_user')
-      if (legacyUserStr) {
-        try {
-          let legacyUser = JSON.parse(legacyUserStr)
-          logger.dev('🔄 Usuario legacy encontrado en localStorage:', legacyUser);
-          
-          // 🔧 MIGRACIÓN: Si no tiene username pero tiene email, extraer username del email
-          if (legacyUser && !legacyUser.username && !legacyUser.nombre_usuario && legacyUser.email) {
-            legacyUser.username = legacyUser.email.split('@')[0]; // Usar parte antes del @
-            localStorage.setItem('ondeon_legacy_user', JSON.stringify(legacyUser));
-            logger.dev('🔧 Username generado desde email:', legacyUser.username);
-          }
-          
-          setUser(legacyUser)
-          setIsLegacyUser(true)
-          setRegistroCompleto(true) // Usuarios legacy siempre tienen registro completo
-
-          // 🔧 ARREGLADO: Consultar rol desde BD si no está en localStorage
-          let rolId = legacyUser.rol_id || legacyUser.role_id;
-          
-          if (!rolId && legacyUser.id) {
-            logger.dev('⚠️ LocalStorage no tiene rol_id, consultando BD...');
-            try {
-              const { data: userData, error } = await supabase
-                .from('usuarios')
-                .select('rol_id')
-                .eq('id', legacyUser.id)
-                .single();
-              
-              if (error) {
-                logger.error('❌ Error consultando rol:', error);
-                rolId = 1;
-              } else {
-                rolId = userData.rol_id || 1;
-                logger.dev('✅ Rol obtenido desde BD:', rolId);
-                
-                // Actualizar localStorage con el rol correcto
-                legacyUser.rol_id = rolId;
-                localStorage.setItem('ondeon_legacy_user', JSON.stringify(legacyUser));
-              }
-            } catch (e) {
-              logger.error('❌ Excepción consultando rol:', e);
-              rolId = 1;
-            }
-          }
-          
-          if (!rolId) rolId = 1; // Fallback final
-          
-          setUserRole(rolId)
-          logger.dev('🔄 Rol del usuario desde localStorage:', rolId)
-            logger.dev('🔄 Usuario completo desde localStorage:', legacyUser)
-            
-            // 🚀 Iniciar servicio de presencia
-            const userId = legacyUser?.id || legacyUser?.usuario_id || legacyUser?.user_id;
-            if (userId) {
-              try {
-                const { getAppVersion } = await import('@/lib/appVersion');
-                const appVersion = await getAppVersion();
-                await optimizedPresenceService.startPresence(userId, {
-                  appVersion,
-                  deviceInfo: {
-                    userAgent: navigator.userAgent,
-                    platform: navigator.platform
-                  }
-                });
-                logger.dev('✅ Servicio de presencia iniciado');
-                
-                // 💓 Iniciar heartbeat ligero
-                lightweightHeartbeatService.start(userId);
-                logger.dev('💓 Heartbeat ligero iniciado');
-              } catch (e) {
-                logger.warn('⚠️ No se pudo iniciar servicio de presencia:', e);
-              }
-            }
-            
-            // Los canales se cargarán bajo demanda
-            logger.dev('ℹ️ Usuario establecido - canales se cargarán bajo demanda');
-          
-          setLoading(false)
-          return
-        } catch (error) {
-          logger.error('❌ Error parseando usuario legacy:', error)
-          localStorage.removeItem('ondeon_legacy_user')
-        }
-      }
-
-      // Si no hay usuario legacy, verificar Supabase
-      // 🔑 CRÍTICO: Usar getUser() en lugar de getSession() para verificar contra el servidor
-      // getSession() solo lee el cache local, getUser() valida el token con Supabase
-      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser()
-      
-      // Si el token es inválido o el usuario no existe, limpiar sesión
-      if (authError || !authUser) {
-        logger.dev('ℹ️ No hay usuario válido en Supabase Auth');
-        await supabase.auth.signOut()
-        setSession(null)
-        setUser(null)
-        setIsLegacyUser(false)
-        setUserRole(null)
-        setUserPlan(null)
-        setRegistroCompleto(null)
+        logger.dev('🚫 Proceso de logout detectado - no restaurar sesión')
+        sessionStorage.removeItem('ondeon_logging_out')
+        cleanupAllStorage()
         setLoading(false)
         return
       }
+
+      // Verificar sesión de Supabase Auth
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser()
       
-      // Obtener sesión para tokens
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      // 🔧 Cargar rol para usuarios de Supabase Auth
-      if (authUser?.id) {
-        logger.dev('ℹ️ Sesión Supabase encontrada - verificando usuario...');
-        try {
-          const { data: userData, error: userError } = await supabase
-            .from('usuarios')
-            .select('id, rol_id, registro_completo, email')
-            .eq('auth_user_id', authUser.id)
-            .maybeSingle()
-          
-          if (userData && !userError) {
-            setSession(session)
-            setUser(session?.user ?? null)
-            setIsLegacyUser(false)
-            setUserRole(userData.rol_id || 2)
-            setRegistroCompleto(userData.registro_completo === true)
-            logger.dev('✅ Rol de usuario Supabase Auth:', userData.rol_id, '- registro_completo:', userData.registro_completo)
-          } else {
-            // 🔑 CRÍTICO: Sesión existe pero NO hay registro en public.usuarios
-            // Esto puede pasar si es un usuario OAuth NUEVO que aún no completó registro
-            // NO hacer signOut - dejar que el flujo de registro lo maneje
-            logger.dev('ℹ️ Usuario sin registro en BD, asumiendo: Gestor, registro_completo: false');
-            
-            // Mantener la sesión pero marcar como registro incompleto
-            setSession(session)
-            setUser(session?.user ?? null)
-            setIsLegacyUser(false)
-            setUserRole(2) // Asumir gestor para nuevos usuarios
-            setRegistroCompleto(false) // 🔑 Esto activará la redirección a /registro en App.jsx
-          }
-        } catch (e) {
-          logger.warn('⚠️ Error verificando usuario Supabase:', e)
-          // En caso de error, mantener la sesión pero asumir gestor
-          setSession(session)
-          setUser(session?.user ?? null)
-          setIsLegacyUser(false)
-          setUserRole(2) // Fallback a gestor
-        }
-      } else {
-        // No hay sesión
-        setSession(null)
-        setUser(null)
-        setIsLegacyUser(false)
+      if (authError || !authUser) {
+        logger.dev('ℹ️ No hay usuario autenticado')
+        await supabase.auth.signOut()
+        resetAuthState()
+        setLoading(false)
+        return
       }
+
+      // Obtener sesión para tokens
+      const { data: { session: authSession } } = await supabase.auth.getSession()
+      setSession(authSession)
+      setUser(authUser)
+      
+      // Cargar datos completos del usuario
+      await loadUserInitData()
       
       setLoading(false)
     }
 
     getInitialSession()
 
-    // Escuchar cambios de autenticación de Supabase
-    // 🔑 CRÍTICO: NO usar async/await aquí - causa problemas con el estado de React
+    // Listener de cambios de auth
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        // Solo actualizar si no hay usuario legacy activo
-        if (!isLegacyUser) {
-          logger.dev('ℹ️ Sesión Supabase actualizada - event:', event);
+      async (event, session) => {
+        logger.dev('🔄 Auth state change:', event)
+        
+        if (event === 'SIGNED_OUT') {
+          resetAuthState()
+          return
+        }
+        
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           setSession(session)
           setUser(session?.user ?? null)
           
-          // Limpiar estados si no hay sesión
-          if (!session?.user?.id) {
-            setUserChannels([]);
-            setUserRole(null);
-            setUserPlan(null);
-            setRegistroCompleto(null);
-            logger.dev('🧹 Estados limpiados - usuario deslogueado');
+          // Cargar datos si es un nuevo usuario
+          if (session?.user?.id && session.user.id !== lastAuthUserIdRef.current) {
+            await loadUserInitData()
           }
         }
-        setLoading(false)
       }
     )
 
     return () => subscription.unsubscribe()
-  }, [isLegacyUser])
+  }, [])
 
-  // 🔑 CRÍTICO: Cargar datos del usuario (rol, registro_completo) cuando user cambie
-  // Esto está SEPARADO de onAuthStateChange para evitar problemas con async/await
-  // 🔒 También verifica suscripción para gestores en Electron
-  const subscriptionCheckDoneRef = React.useRef(false);
-  const lastCheckedUserIdRef = React.useRef(null);
+  // ============================================================================
+  // CARGA DE DATOS DEL USUARIO
+  // ============================================================================
   
-  // 🔒 Estado para mostrar mensaje de suscripción requerida
-  const [subscriptionRequired, setSubscriptionRequired] = React.useState(false);
-  
-  // 💰 Estado para guardar el plan del usuario (Ondeón Básico / Ondeón Pro)
-  const [userPlan, setUserPlan] = React.useState(null);
-  
-  useEffect(() => {
-    const loadUserData = async () => {
-      // Solo para usuarios de Supabase Auth (no legacy)
-      if (!user?.id || isLegacyUser) {
-        // 🔑 Resetear el flag cuando no hay usuario (logout)
-        if (!user?.id && lastCheckedUserIdRef.current) {
-          subscriptionCheckDoneRef.current = false;
-          lastCheckedUserIdRef.current = null;
-          logger.dev('🔄 [loadUserData] Ref reseteado - usuario deslogueado');
-        }
-        return;
+  const loadUserInitData = async () => {
+    // Flag para asegurar que siempre establecemos registroCompleto
+    let registroCompletoSet = false
+    
+    try {
+      logger.dev('🔄 Cargando datos iniciales del usuario...')
+      
+      // 🚀 OPTIMIZACIÓN: Verificación RÁPIDA con timeout de 5 segundos
+      // Si Supabase tarda más de 5s (cold start), asumimos usuario sin registro
+      const QUICK_TIMEOUT = 5000
+      
+      // Helper para crear timeout
+      const withTimeout = (promise, ms, fallback) => {
+        return Promise.race([
+          promise,
+          new Promise((resolve) => setTimeout(() => {
+            logger.dev(`⏱️ Timeout de ${ms}ms alcanzado`)
+            resolve(fallback)
+          }, ms))
+        ])
       }
       
-      // 🔑 Si es un usuario diferente, resetear el flag
-      if (lastCheckedUserIdRef.current !== user.id) {
-        subscriptionCheckDoneRef.current = false;
-        lastCheckedUserIdRef.current = user.id;
+      // Obtener usuario con timeout
+      const userResult = await withTimeout(
+        supabase.auth.getUser(),
+        QUICK_TIMEOUT,
+        { data: { user: null } }
+      )
+      
+      const authUser = userResult?.data?.user
+      if (!authUser) {
+        logger.dev('ℹ️ No hay usuario autenticado o timeout')
+        setRegistroCompleto(false)
+        registroCompletoSet = true
+        return
       }
-
-      try {
-        const { data: userData, error: userError } = await supabase
+      
+      // Consulta directa RÁPIDA para verificar estado de registro (con timeout)
+      const quickCheckResult = await withTimeout(
+        supabase
           .from('usuarios')
-          .select('id, rol_id, registro_completo')
-          .eq('auth_user_id', user.id)
-          .maybeSingle();
-
-        if (userData && !userError) {
-          setUserRole(userData.rol_id || 2);
-          setRegistroCompleto(userData.registro_completo === true);
-          logger.dev('✅ Datos de usuario cargados:', userData.rol_id, '- registro_completo:', userData.registro_completo);
-          
-          // 🚀 Iniciar servicio de presencia para usuarios con registro completo
-          if (userData.registro_completo) {
-            try {
-              const { getAppVersion } = await import('@/lib/appVersion');
-              const appVersion = await getAppVersion();
-              await optimizedPresenceService.startPresence(userData.id, {
-                appVersion,
-                deviceInfo: {
-                  userAgent: navigator.userAgent,
-                  platform: navigator.platform
-                }
-              });
-              logger.dev('✅ Servicio de presencia iniciado');
-              
-              lightweightHeartbeatService.start(userData.id);
-              logger.dev('💓 Heartbeat ligero iniciado');
-            } catch (e) {
-              logger.warn('⚠️ No se pudo iniciar servicio de presencia:', e);
-            }
-          }
-        } else {
-          // Usuario OAuth sin registro en usuarios = Gestor, registro incompleto
-          const metadataRol = user.user_metadata?.rol_id;
-          setUserRole(metadataRol || 2);
-          setRegistroCompleto(false);
-          logger.dev('ℹ️ Usuario sin registro en BD, asumiendo: Gestor, registro_completo: false');
-        }
-      } catch (e) {
-        logger.warn('⚠️ Error cargando datos de usuario:', e);
-        setUserRole(2);
-        setRegistroCompleto(false);
+          .select('id, registro_completo, rol')
+          .eq('auth_user_id', authUser.id)
+          .maybeSingle(),
+        QUICK_TIMEOUT,
+        { data: null, error: { message: 'Quick check timeout' } }
+      )
+      
+      const { data: quickCheck, error: quickError } = quickCheckResult
+      
+      // Si timeout, error, no existe el usuario, o registro_completo es false -> redirigir YA
+      if (quickError || !quickCheck || !quickCheck.registro_completo) {
+        logger.dev('⚡ Verificación rápida: usuario sin registro completo, redirigiendo...')
+        setRegistroCompleto(false)
+        registroCompletoSet = true
+        setUserRole(quickCheck?.rol || 'user')
+        setUserData(quickCheck || null)
+        return // 🔑 NO esperar al RPC lento, redirigir inmediatamente
       }
-    };
+      
+      logger.dev('✅ Usuario con registro completo, cargando datos completos...')
+      
+      // Solo si tiene registro completo, cargar datos completos via RPC
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout: getUserInit tardó demasiado')), 30000)
+      )
+      
+      const initData = await Promise.race([
+        initApi.getUserInit(),
+        timeoutPromise
+      ])
+      
+      if (initData?.error) {
+        // Usuario autenticado pero sin registro en tabla usuarios
+        logger.dev('ℹ️ Usuario sin registro completo en BD:', initData.error)
+        setRegistroCompleto(false)
+        registroCompletoSet = true
+        setUserRole('user')
+        setUserData(null)
+        return
+      }
+      
+      // Guardar datos del usuario
+      setUserData(initData.usuario)
+      setUserRole(initData.usuario?.rol || 'user')
+      
+      // 🔑 CRÍTICO: Establecer registroCompleto basado en los datos
+      const isRegistroCompleto = initData.usuario?.registro_completo === true
+      setRegistroCompleto(isRegistroCompleto)
+      registroCompletoSet = true
+      logger.dev('📋 registroCompleto establecido a:', isRegistroCompleto)
+      
+      lastAuthUserIdRef.current = initData.usuario?.id
+      
+      // Guardar canales recomendados por sector
+      setRecommendedChannels(initData.canales_recomendados || [])
+      
+      // Guardar programaciones activas
+      setActiveProgramaciones(initData.programaciones_activas || [])
+      
+      logger.dev('✅ Datos iniciales cargados:', {
+        usuario: initData.usuario?.email,
+        rol: initData.usuario?.rol,
+        registro_completo: initData.usuario?.registro_completo,
+        canales_recomendados: initData.canales_recomendados?.length || 0,
+        programaciones: initData.programaciones_activas?.length || 0
+      })
+      
+      // Si el registro está completo, cargar canales e iniciar servicios
+      if (initData.usuario?.registro_completo) {
+        await loadAllChannels()
+        await startPresenceService(initData.usuario.id)
+        
+        // Iniciar servicio de contenidos programados
+        await scheduledContentService.iniciar(
+          initData.usuario.id,
+          initData.programaciones_activas || []
+        )
+      }
+      
+    } catch (error) {
+      logger.error('❌ Error cargando datos iniciales:', error)
+      
+      // Cualquier error significa que el usuario no tiene registro completo
+      // (puede ser USER_NOT_FOUND, RPC no existe, error de BD, timeout, etc.)
+      setRegistroCompleto(false)
+      registroCompletoSet = true
+      setUserRole('user')
+      setUserData(null)
+      logger.dev('ℹ️ Usuario sin datos en BD - requiere completar registro')
+    } finally {
+      // 🔑 FALLBACK: Si por alguna razón registroCompleto no se estableció, hacerlo ahora
+      if (!registroCompletoSet) {
+        logger.warn('⚠️ registroCompleto no fue establecido, forzando a false')
+        setRegistroCompleto(false)
+      }
+    }
+  }
 
-    loadUserData();
-  }, [user?.id, isLegacyUser]);
+  // ============================================================================
+  // CANALES
+  // ============================================================================
+  
+  const loadAllChannels = async (forceRefresh = false) => {
+    if (channelsLoading) return userChannels
+    
+    try {
+      setChannelsLoading(true)
+      logger.dev('🔄 Cargando todos los canales...')
+      
+      const canales = await channelsApi.getAllChannels(forceRefresh)
+      setUserChannels(canales)
+      
+      logger.dev(`✅ ${canales.length} canales cargados`)
+      
+      // Seleccionar canal aleatorio si no hay uno activo
+      if (canales.length > 0 && !window.currentPlayerChannelId) {
+        const canalAleatorio = canales[Math.floor(Math.random() * canales.length)]
+        logger.dev('🎲 Canal aleatorio seleccionado:', canalAleatorio.nombre)
+        
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('canalAutoSeleccionado', {
+            detail: { canal: canalAleatorio }
+          }))
+        }, 500)
+      }
+      
+      return canales
+    } catch (error) {
+      logger.error('❌ Error cargando canales:', error)
+      setUserChannels([])
+      return []
+    } finally {
+      setChannelsLoading(false)
+    }
+  }
 
-  // Funciones de autenticación
+  const ensureChannelsLoaded = useCallback(async () => {
+    if (channelsLoading) return userChannels
+    if (userChannels.length > 0) return userChannels
+    return await loadAllChannels()
+  }, [channelsLoading, userChannels])
+
+  // ============================================================================
+  // PRESENCIA
+  // ============================================================================
+  
+  const startPresenceService = async (usuarioId) => {
+    if (!usuarioId) return
+    
+    try {
+      const { getAppVersion } = await import('@/lib/appVersion')
+      const appVersion = await getAppVersion()
+      
+      // Enviar heartbeat inicial
+      await presenceApi.sendHeartbeat({
+        playbackState: 'idle',
+        appVersion
+      })
+      
+      logger.dev('✅ Presencia iniciada')
+    } catch (e) {
+      logger.warn('⚠️ No se pudo iniciar presencia:', e)
+    }
+  }
+
+  // ============================================================================
+  // AUTENTICACIÓN
+  // ============================================================================
+  
   const signUp = async (email, password) => {
-    const { data, error } = await authApi.signUpWithEmail(email, password)
-    if (error) throw error
+    const data = await authApi.signUpWithEmail(email, password)
     return data
   }
 
   const signIn = async (email, password) => {
-    const { data, error } = await authApi.signInWithEmail(email, password)
-    if (error) throw error
+    const data = await authApi.signInWithEmail(email, password)
     
-    // 🚫 DESACTIVADO TEMPORALMENTE - Sistema de presencia/heartbeat
-    // Causa alto consumo de Egress (99.8% Database Egress)
-    /*
-    if (data?.user?.id) {
-      await advancedPresenceService.startPresence(data.user.id, {
-        enableLocation: true,
-        enableMetrics: true,
-        heartbeatInterval: 30000
-      });
-      logger.dev('🚀 Servicios iniciados tras login exitoso');
-    }
-    */
-    
-    // Cargar canales activos después del login exitoso
-    if (data?.user?.id) {
-      await loadUserActiveChannels(data.user.id);
-    }
-    
+    // La carga de datos se hará automáticamente via onAuthStateChange
     return data
   }
 
-  // Login legacy usando Edge Function segura
-  const signInWithUsuarios = async (username, password) => {
-    try {
-      logger.dev('🔐 Iniciando login legacy (Edge Function)...');
-      const data = await authApi.signInLegacyEdge(username, password)
-      
-      logger.dev('📦 Respuesta del Edge Function:', data);
-
-      // Estructura esperada: { user, token? }
-      let userPayload = data?.user || { username, legacy: true }
-      const token = data?.token || data?.access_token || null
-
-      // 🔧 NUEVO: Asegurar que el username esté presente
-      if (userPayload && !userPayload.username && !userPayload.nombre_usuario) {
-        userPayload.username = username; // Usar el username que se usó para hacer login
-      }
-
-      logger.dev('👤 User payload extraído:', userPayload);
-      logger.dev('🔑 Token extraído:', token ? 'SÍ' : 'NO');
-      logger.dev('🔍 Username final:', userPayload?.username);
-      logger.dev('🎭 rol_id en payload:', userPayload?.rol_id);
-      logger.dev('🎭 Tipo de rol_id:', typeof userPayload?.rol_id);
-
-      // Guardar en localStorage para persistencia mínima
-      if (token) localStorage.setItem('ondeon_edge_token', token)
-      localStorage.setItem('ondeon_legacy_user', JSON.stringify(userPayload))
-
-      setUser(userPayload)
-      setIsLegacyUser(true)
-      setRegistroCompleto(true) // Usuarios legacy siempre tienen registro completo
-
-      // 🔧 ARREGLADO: Si el Edge Function no retorna rol_id, consultarlo desde BD
-      let rolId = userPayload.rol_id || userPayload.role_id;
-      
-      if (!rolId && userPayload.id) {
-        logger.dev('⚠️ Edge Function no retornó rol_id, consultando BD...');
-        try {
-          const { data: userData, error } = await supabase
-            .from('usuarios')
-            .select('rol_id')
-            .eq('id', userPayload.id)
-            .single();
-          
-          if (error) {
-            logger.error('❌ Error consultando rol:', error);
-            rolId = 1; // Fallback a usuario base
-          } else {
-            rolId = userData.rol_id || 1;
-            logger.dev('✅ Rol obtenido desde BD:', rolId);
-          }
-        } catch (e) {
-          logger.error('❌ Excepción consultando rol:', e);
-          rolId = 1;
-        }
-      }
-      
-      if (!rolId) rolId = 1; // Fallback final
-      
-      setUserRole(rolId)
-      logger.dev('🔐 Rol del usuario establecido:', rolId)
-      logger.dev('🔐 Valor original rol_id en payload:', userPayload.rol_id)
-      logger.dev('🔐 Valor original role_id en payload:', userPayload.role_id)
-      
-      // 🚫 DESACTIVADO TEMPORALMENTE - Sistema de presencia/heartbeat
-      // Causa alto consumo de Egress (99.8% Database Egress)
-      const userId = userPayload?.id || userPayload?.usuario_id || userPayload?.user_id;
-      logger.dev('🆔 UserId extraído:', userId);
-      logger.dev('🔍 Campos disponibles en userPayload:', Object.keys(userPayload));
-      
-      if (userId) {
-        logger.dev('✅ UserId encontrado, cargando canales...');
-        await loadUserActiveChannels(userId);
-        
-        // 🚀 Iniciar servicio de presencia
-        try {
-          const { getAppVersion } = await import('@/lib/appVersion');
-          const appVersion = await getAppVersion();
-          await optimizedPresenceService.startPresence(userId, {
-            appVersion,
-            deviceInfo: {
-              userAgent: navigator.userAgent,
-              platform: navigator.platform
-            }
-          });
-          logger.dev('✅ Servicio de presencia iniciado');
-          
-          // 💓 Iniciar heartbeat ligero
-          lightweightHeartbeatService.start(userId);
-          logger.dev('💓 Heartbeat ligero iniciado');
-        } catch (e) {
-          logger.warn('⚠️ No se pudo iniciar servicio de presencia:', e);
-        }
-      } else {
-        logger.error('❌ No se pudo extraer userId del payload');
-        logger.error('🔍 Payload completo:', userPayload);
-      }
-      
-      return userPayload
-    } catch (error) {
-      logger.error('❌ Error en signInWithUsuarios:', error);
-      throw error
-    }
-  }
-
   const signInWithGoogle = async () => {
-    const { data, error } = await authApi.signInWithGoogle()
-    if (error) throw error
-    
-    // 🚫 DESACTIVADO TEMPORALMENTE - Sistema de presencia/heartbeat
-    // Causa alto consumo de Egress (99.8% Database Egress)
-    /*
-    if (data?.user?.id) {
-      await advancedPresenceService.startPresence(data.user.id, {
-        enableLocation: true,
-        enableMetrics: true,
-        heartbeatInterval: 30000
-      });
-      logger.dev('🚀 Servicios iniciados tras login con Google');
-    }
-    */
-    
+    const data = await authApi.signInWithGoogle()
     return data
   }
 
   const signInWithApple = async () => {
-    const { data, error } = await authApi.signInWithApple()
-    if (error) throw error
-    
-    // 🚫 DESACTIVADO TEMPORALMENTE - Sistema de presencia/heartbeat
-    // Causa alto consumo de Egress (99.8% Database Egress)
-    /*
-    if (data?.user?.id) {
-      await advancedPresenceService.startPresence(data.user.id, {
-        enableLocation: true,
-        enableMetrics: true,
-        heartbeatInterval: 30000
-      });
-      logger.dev('🚀 Servicios iniciados tras login con Apple');
-    }
-    */
-    
+    const data = await authApi.signInWithApple()
     return data
   }
 
   const signOut = async () => {
-    logger.dev('🚪 AuthContext.signOut iniciado...');
+    logger.dev('🚪 Iniciando logout...')
     
-    // 🛑 Detener sistema de presencia optimizado
+    // Marcar proceso de logout
+    sessionStorage.setItem('ondeon_logging_out', 'true')
+    
+    // Detener servicio de contenidos programados
+    scheduledContentService.detener()
+    
+    // Marcar como offline
     try {
-      await optimizedPresenceService.stopPresence();
-      logger.dev('✅ Sistema de presencia detenido');
+      await presenceApi.logout()
     } catch (e) {
-      logger.warn('⚠️ Error deteniendo servicio de presencia:', e)
+      logger.warn('⚠️ Error marcando offline:', e)
     }
     
-    // 🛑 Detener heartbeat ligero
+    // Limpiar estados
+    resetAuthState()
+    
+    // Limpiar storage
+    cleanupAllStorage()
+    
+    // Logout de Supabase
     try {
-      lightweightHeartbeatService.stop();
-      logger.dev('✅ Heartbeat ligero detenido');
+      await supabase.auth.signOut({ scope: 'global' })
     } catch (e) {
-      logger.warn('⚠️ Error deteniendo heartbeat:', e)
-    }
-
-    // 🔧 CRÍTICO: Marcar que estamos en proceso de logout para evitar restauración
-    sessionStorage.setItem('ondeon_logging_out', 'true');
-
-    if (isLegacyUser) {
-      logger.dev('🔐 Cerrando sesión legacy...');
-      
-      // 🔧 CRÍTICO: Extraer userId ANTES de eliminar datos
-      const legacyUserStr = localStorage.getItem('ondeon_legacy_user')
-      const legacyUser = legacyUserStr ? JSON.parse(legacyUserStr) : null
-      const userId = legacyUser?.id || legacyUser?.usuario_id || legacyUser?.user_id
-      
-      // 🔧 CRÍTICO: Limpiar PRIMERO todos los datos de sesión
-      localStorage.removeItem('ondeon_legacy_user')
-      localStorage.removeItem('ondeon_edge_token')
-      logger.dev('✅ localStorage limpiado');
-      
-      // Limpiar estados de React inmediatamente
-      setUser(null)
-      setIsLegacyUser(false)
-      setUserRole(null)
-      setUserPlan(null)
-      setRegistroCompleto(null)
-      setUserChannels([])
-      
-      // Log de logout en background (no bloquea)
-      if (userId) {
-        import('@/services/playbackLogger.js').then(mod => {
-          mod.default.iniciar(userId, true).then(() => {
-            mod.default.logLogout({ method: 'legacy' })
-            mod.default.detener()
-          }).catch(() => {})
-        }).catch(() => {})
-      }
-      
-      logger.dev('✅ Sesión legacy cerrada completamente');
-    } else {
-      logger.dev('🔐 Cerrando sesión Supabase/OAuth...');
-      
-      // 🔧 CRÍTICO: Extraer userId ANTES de limpiar
-      const userId = user?.id || user?.usuario_id || user?.user_id;
-      
-      // 🔧 CRÍTICO: Limpiar estados de React PRIMERO
-      setUser(null)
-      setSession(null)
-      setUserRole(null)
-      setUserPlan(null)
-      setRegistroCompleto(null)
-      setUserChannels([])
-      logger.dev('✅ Estados de React limpiados');
-      
-      // 🔧 CRÍTICO para OAuth: Limpiar MANUALMENTE todas las claves de Supabase del localStorage
-      // Esto es necesario porque signOut puede fallar o no completarse a tiempo
-      const keysToRemove = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
-          keysToRemove.push(key);
-        }
-      }
-      keysToRemove.forEach(key => {
-        localStorage.removeItem(key);
-        logger.dev(`🗑️ Eliminado localStorage: ${key}`);
-      });
-      logger.dev('✅ localStorage de Supabase limpiado manualmente');
-      
-      // Logout de Supabase con scope: 'global' y timeout
-      try {
-        logger.dev('🔄 Llamando a supabase.auth.signOut({ scope: global })...');
-        const signOutPromise = supabase.auth.signOut({ scope: 'global' });
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout')), 3000)
-        );
-        await Promise.race([signOutPromise, timeoutPromise]);
-        logger.dev('✅ signOut completado');
-      } catch (signOutError) {
-        logger.warn('⚠️ Error/Timeout en signOut (ignorando):', signOutError?.message);
-      }
-      
-      // Registrar logout en background (no bloquea)
-      if (userId) {
-        import('@/services/playbackLogger.js').then(mod => {
-          mod.default.iniciar(userId, true).then(() => {
-            mod.default.logLogout({ method: 'supabase/oauth' })
-            mod.default.detener()
-          }).catch(() => {})
-        }).catch(() => {})
-      }
-      
-      logger.dev('✅ Sesión Supabase/OAuth cerrada completamente');
+      logger.warn('⚠️ Error en signOut:', e)
     }
     
-    logger.dev('✅ AuthContext.signOut completado');
+    logger.dev('✅ Logout completado')
   }
 
-  // Cargar canales activos del usuario autenticado (bajo demanda)
-  const loadUserActiveChannels = async (userId) => {
-    if (!userId) {
-      logger.dev('⚠️ No hay userId para cargar canales');
-      return;
-    }
-    
-    try {
-      setChannelsLoading(true);
-      logger.dev('🔐 Cargando canales activos para usuario (bajo demanda):', userId);
-      
-      const canalesActivos = await channelsApi.getUserActiveChannelsHierarchy(userId);
-      
-      logger.dev('📊 Canales activos obtenidos:', canalesActivos);
-      logger.dev('📊 Cantidad de canales:', canalesActivos.length);
-      
-      // 🔧 CRÍTICO: Forzar nueva referencia del array para que React detecte el cambio
-      setUserChannels([...canalesActivos]);
-      logger.dev(`📊 ${canalesActivos.length} canales activos cargados para el usuario`);
-      logger.dev('✅ Estado userChannels actualizado - componentes deberían re-renderizarse');
-      
-      // Seleccionar automáticamente un canal aleatorio SOLO si aún no hay canal activo y no se está recargando por Realtime
-      if (canalesActivos.length > 0 && !window.currentPlayerChannelId && !window.suppressAutoSelect) {
-        const canalAleatorio = canalesActivos[Math.floor(Math.random() * canalesActivos.length)];
-        logger.dev('🎲 Canal aleatorio seleccionado:', canalAleatorio);
-        
-        // Emitir evento personalizado para notificar la selección automática con un pequeño delay
-        setTimeout(() => {
-          const event = new CustomEvent('canalAutoSeleccionado', {
-            detail: { canal: canalAleatorio }
-          });
-          window.dispatchEvent(event);
-          logger.dev('📡 Evento canalAutoSeleccionado enviado');
-        }, 500); // Delay de 500ms para asegurar que los componentes estén listos
-      } else {
-        logger.dev('⚠️ No hay canales disponibles para seleccionar automáticamente');
+  // ============================================================================
+  // HELPERS
+  // ============================================================================
+  
+  const resetAuthState = () => {
+    setUser(null)
+    setUserData(null)
+    setSession(null)
+    setUserChannels([])
+    setRecommendedChannels([])
+    setActiveProgramaciones([])
+    setUserRole(null)
+    setRegistroCompleto(null)
+    initLoadedRef.current = false
+    lastAuthUserIdRef.current = null
+  }
+
+  const cleanupAllStorage = () => {
+    // Limpiar claves de Supabase del localStorage
+    const keysToRemove = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
+        keysToRemove.push(key)
       }
-      
-      return canalesActivos;
-    } catch (error) {
-      logger.error('❌ Error cargando canales activos:', error);
-      logger.error('🔍 Detalles del error:', {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint
-      });
-      setUserChannels([]);
-      return [];
-    } finally {
-      setChannelsLoading(false);
     }
-  };
+    keysToRemove.forEach(key => localStorage.removeItem(key))
+  }
 
-  // Función simplificada - solo carga si realmente no hay canales
-  const ensureChannelsLoaded = async () => {
-    // ✅ Si hay suscripción Realtime pero AÚN no hay canales, cargar de todos modos
-    if (window.channelsRealtimeActive && userChannels.length > 0) {
-      logger.dev('🔄 Suscripción Realtime activa - canales ya presentes, no recargar');
-      return userChannels;
-    }
-
-    if (!user || channelsLoading) {
-      return userChannels;
-    }
-
-    if (userChannels.length === 0) {
-      const userId = user?.id || user?.usuario_id || user?.user_id;
-      if (userId) {
-        logger.dev('🔄 ensureChannelsLoaded → No hay canales en memoria, cargando para usuario:', userId);
-        return await loadUserActiveChannels(userId);
-      }
-      return [];
-    }
-
-    return userChannels;
-  };
-
-
-  // Suscripción Realtime centralizada para cambios en canales del usuario
-  useEffect(() => {
-    const userId = user?.id || user?.usuario_id || user?.user_id;
-    if (!userId) return;
-
-    logger.dev('🔄 AuthContext: Configurando suscripción Realtime de canales para usuario:', userId);
-    window.channelsRealtimeActive = true;
-
-    const channelName = `realtime-canales-context-${userId}`;
-    const subscription = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'reproductor_usuario_canales',
-          filter: `usuario_id=eq.${userId}`
-        },
-        async (payload) => {
-          logger.dev('📡 AuthContext: Cambio Realtime en canales:', payload?.eventType);
-          try {
-            // 🔧 CRÍTICO: Invalidar cache antes de recargar
-            channelsApi.invalidateChannelsCache(userId);
-            
-            // Recargar canales desde la BD (sin cache)
-            const canales = await loadUserActiveChannels(userId);
-            
-            // Notificar a vistas que dependan de este listado
-            try {
-              window.dispatchEvent(new CustomEvent('canalesActualizados', { detail: { canales } }));
-            } catch (e) {}
-          } catch (error) {
-            logger.warn('⚠️ AuthContext: Error sincronizando canales tras Realtime:', error);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      logger.dev('🧹 AuthContext: Limpiando suscripción Realtime de canales');
-      window.channelsRealtimeActive = false;
-      try { supabase.removeChannel(subscription); } catch {}
-    };
-  }, [user]);
-
-  // 🔧 NUEVO: Función para forzar sincronización manual
-  const forceSyncChannels = async () => {
-    const userId = user?.id || user?.usuario_id || user?.user_id;
-    if (userId) {
-      logger.dev('🔄 Forzando sincronización manual de canales...');
-      await loadUserActiveChannels(userId);
-    }
-  };
-
-  // 🎵 Funciones para manejar reproducción manual (bloquea todos los controles)
-  const startManualPlayback = React.useCallback((contentId, contentName, durationSeconds) => {
-    // 🔧 CRÍTICO: Limpiar cualquier timeout previo antes de crear uno nuevo
+  // ============================================================================
+  // REPRODUCCIÓN MANUAL
+  // ============================================================================
+  
+  const startManualPlayback = useCallback((contentId, contentName, durationSeconds) => {
     if (manualPlaybackTimeoutRef.current) {
-      logger.dev('🧹 Limpiando timeout previo antes de iniciar nueva reproducción');
-      clearTimeout(manualPlaybackTimeoutRef.current);
-      manualPlaybackTimeoutRef.current = null;
+      clearTimeout(manualPlaybackTimeoutRef.current)
+      manualPlaybackTimeoutRef.current = null
     }
     
     const info = {
       contentId,
       contentName,
       startTime: Date.now(),
-      duration: durationSeconds * 1000, // convertir a milisegundos
-    };
+      duration: durationSeconds * 1000
+    }
     
-    // Auto-desbloquear después de la duración del contenido (fallback)
     const timeoutId = setTimeout(() => {
-      logger.dev('⏰ Timeout de reproducción manual alcanzado - desbloqueando controles');
-      // 🔧 Verificar que este timeout siga siendo el activo antes de desbloquear
       if (manualPlaybackTimeoutRef.current === timeoutId) {
-        clearManualPlayback();
-      } else {
-        logger.dev('⏭️ Timeout obsoleto ignorado - ya se limpió antes');
+        clearManualPlayback()
       }
-    }, info.duration + 1000); // +1s de margen por seguridad
+    }, info.duration + 1000)
     
-    // Guardar en ref para acceso directo sin closures
-    manualPlaybackTimeoutRef.current = timeoutId;
+    manualPlaybackTimeoutRef.current = timeoutId
+    setManualPlaybackInfo(info)
+    setIsManualPlaybackActive(true)
     
-    setManualPlaybackInfo(info);
-    setIsManualPlaybackActive(true);
-    logger.dev('🎵 Reproducción manual iniciada - controles bloqueados:', {
-      ...info,
-      timeoutId
-    });
-  }, []);
+    logger.dev('🎵 Reproducción manual iniciada:', contentName)
+  }, [])
 
-  const clearManualPlayback = React.useCallback(() => {
-    // 🔧 CRÍTICO: Verificar si ya está limpio para evitar doble limpieza
+  const clearManualPlayback = useCallback(() => {
     if (!manualPlaybackTimeoutRef.current && !isManualPlaybackActive) {
-      logger.dev('⏭️ clearManualPlayback llamado pero ya estaba limpio - ignorando');
-      return;
+      return
     }
     
-    logger.dev('🔓 Reproducción manual finalizada - controles desbloqueados');
-    
-    // Limpiar timeout usando ref (siempre tiene el valor actual)
     if (manualPlaybackTimeoutRef.current) {
-      clearTimeout(manualPlaybackTimeoutRef.current);
-      manualPlaybackTimeoutRef.current = null;
-      logger.dev('✅ Timeout de reproducción manual limpiado correctamente');
+      clearTimeout(manualPlaybackTimeoutRef.current)
+      manualPlaybackTimeoutRef.current = null
     }
     
-    setIsManualPlaybackActive(false);
-    setManualPlaybackInfo(null);
-  }, [isManualPlaybackActive]);
-  
-  // Exponer funciones globalmente con refs actualizadas
+    setIsManualPlaybackActive(false)
+    setManualPlaybackInfo(null)
+    logger.dev('🔓 Reproducción manual finalizada')
+  }, [isManualPlaybackActive])
+
+  // Exponer funciones globalmente
   useEffect(() => {
-    window.__startContentPlayback = startManualPlayback;
-    window.__clearManualPlayback = clearManualPlayback;
+    window.__startContentPlayback = startManualPlayback
+    window.__clearManualPlayback = clearManualPlayback
     
     return () => {
-      // Limpiar al desmontar
-      delete window.__startContentPlayback;
-      delete window.__clearManualPlayback;
-      
-      // Asegurar limpieza de timeouts al desmontar
+      delete window.__startContentPlayback
+      delete window.__clearManualPlayback
       if (manualPlaybackTimeoutRef.current) {
-        clearTimeout(manualPlaybackTimeoutRef.current);
-        manualPlaybackTimeoutRef.current = null;
+        clearTimeout(manualPlaybackTimeoutRef.current)
       }
-    };
-  }, [startManualPlayback, clearManualPlayback]);
-
-  // 📝 Cargar perfil completo del usuario desde la tabla usuarios
-  const loadUserProfile = async () => {
-    const authUserId = user?.id;
-    if (!authUserId) {
-      logger.warn('⚠️ No hay usuario autenticado para cargar perfil');
-      return null;
     }
+  }, [startManualPlayback, clearManualPlayback])
 
-    try {
-      const { data: userData, error } = await supabase
-        .from('usuarios')
-        .select('id, nombre, email, telefono, establecimiento, ultimo_cambio_establecimiento, direccion, localidad, provincia, codigo_postal, pais, sector_id, notas')
-        .eq('auth_user_id', authUserId)
-        .single();
+  // ============================================================================
+  // SUSCRIPCIÓN REALTIME A CANALES
+  // ============================================================================
+  
+  useEffect(() => {
+    if (!userData?.id || !registroCompleto) return
 
-      if (error) {
-        logger.error('❌ Error cargando perfil de usuario:', error);
-        return null;
-      }
+    logger.dev('🔄 Configurando Realtime para canales')
 
-      logger.dev('✅ Perfil de usuario cargado:', userData);
-      return userData;
-    } catch (e) {
-      logger.error('❌ Error en loadUserProfile:', e);
-      return null;
-    }
-  };
-
-  // 📝 Actualizar perfil del usuario en la tabla usuarios
-  // Si cambió el establecimiento, actualiza también establecimiento_updated_at
-  const updateUserProfile = async (profileData, options = {}) => {
-    const authUserId = user?.id;
-    if (!authUserId) {
-      logger.warn('⚠️ No hay usuario autenticado para actualizar perfil');
-      return { success: false, error: 'No hay usuario autenticado' };
-    }
-
-    try {
-      logger.dev('🔄 Actualizando perfil de usuario...');
-      
-      // Preparar datos a actualizar (solo campos definidos)
-      const updateData = {};
-      
-      if (profileData.nombre !== undefined) updateData.nombre = profileData.nombre;
-      if (profileData.telefono !== undefined) updateData.telefono = profileData.telefono;
-      if (profileData.direccion !== undefined) updateData.direccion = profileData.direccion;
-      if (profileData.localidad !== undefined) updateData.localidad = profileData.localidad;
-      if (profileData.provincia !== undefined) updateData.provincia = profileData.provincia;
-      if (profileData.codigo_postal !== undefined) updateData.codigo_postal = profileData.codigo_postal;
-
-      // Si cambió el establecimiento, incluirlo (el trigger de BD maneja la fecha automáticamente)
-      if (options.establecimientoChanged) {
-        updateData.establecimiento = profileData.establecimiento;
-        logger.dev('📢 Establecimiento modificado - se regenerarán indicativos');
-      }
-
-      // Actualizar en public.usuarios
-      const { error: updateError } = await supabase
-        .from('usuarios')
-        .update(updateData)
-        .eq('auth_user_id', authUserId);
-
-      if (updateError) {
-        logger.error('❌ Error actualizando perfil:', updateError);
-        return { success: false, error: updateError.message };
-      }
-
-      // También actualizar metadata en Supabase Auth (no bloqueante)
-      supabase.auth.updateUser({
-        data: {
-          nombre: profileData.nombre,
-          telefono: profileData.telefono,
-          establecimiento: profileData.establecimiento,
+    const subscription = supabase
+      .channel('realtime-canales')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'canales' },
+        async (payload) => {
+          logger.dev('📡 Cambio en canales:', payload.eventType)
+          channelsApi.invalidateCache()
+          await loadAllChannels(true)
         }
-      }).catch(e => logger.warn('⚠️ Error actualizando metadata auth:', e));
+      )
+      .subscribe()
 
-      logger.dev('✅ Perfil actualizado correctamente');
-      return { success: true, establecimientoChanged: options.establecimientoChanged };
-    } catch (e) {
-      logger.error('❌ Error en updateUserProfile:', e);
-      return { success: false, error: e.message };
+    return () => {
+      supabase.removeChannel(subscription)
     }
-  };
+  }, [userData?.id, registroCompleto])
 
+  // ============================================================================
+  // LISTENER PARA CAMBIOS EN PROGRAMACIONES
+  // ============================================================================
+  
+  useEffect(() => {
+    // Cuando cambien las programaciones activas, actualizar el servicio
+    if (userData?.id && registroCompleto && activeProgramaciones) {
+      scheduledContentService.setProgramaciones(activeProgramaciones)
+    }
+  }, [activeProgramaciones, userData?.id, registroCompleto])
+
+  // Listener para evento de programaciones cambiadas desde Realtime
+  useEffect(() => {
+    const handleProgramacionesChanged = async () => {
+      logger.dev('🔔 Evento programacionesChanged recibido - recargando datos')
+      await loadUserInitData()
+    }
+
+    window.addEventListener('programacionesChanged', handleProgramacionesChanged)
+    
+    return () => {
+      window.removeEventListener('programacionesChanged', handleProgramacionesChanged)
+    }
+  }, [])
+
+  // ============================================================================
+  // PERFIL DE USUARIO
+  // ============================================================================
+  
+  const loadUserProfile = async () => {
+    if (!user?.id) return null
+    
+    try {
+      const { data, error } = await supabase
+        .from('usuarios')
+        .select('*')
+        .eq('auth_user_id', user.id)
+        .single()
+      
+      if (error) throw error
+      return data
+    } catch (e) {
+      logger.error('❌ Error cargando perfil:', e)
+      return null
+    }
+  }
+
+  const updateUserProfile = async (profileData) => {
+    if (!user?.id) return { success: false, error: 'No autenticado' }
+    
+    try {
+      const { error } = await supabase
+        .from('usuarios')
+        .update(profileData)
+        .eq('auth_user_id', user.id)
+      
+      if (error) throw error
+      
+      // Recargar datos del usuario
+      await loadUserInitData()
+      
+      return { success: true }
+    } catch (e) {
+      logger.error('❌ Error actualizando perfil:', e)
+      return { success: false, error: e.message }
+    }
+  }
+
+  // ============================================================================
+  // PROGRAMACIONES DE SECTOR
+  // ============================================================================
+  
+  const toggleProgramacionSector = async (programacionId, desactivar) => {
+    try {
+      const { contenidosApi } = await import('@/lib/api')
+      await contenidosApi.toggleProgramacionSector(programacionId, desactivar)
+      
+      // Recargar programaciones
+      await loadUserInitData()
+      
+      return { success: true }
+    } catch (e) {
+      logger.error('❌ Error toggling programación:', e)
+      return { success: false, error: e.message }
+    }
+  }
+
+  // ============================================================================
+  // CONTEXT VALUE
+  // ============================================================================
+  
   const value = {
+    // Auth state
     user,
+    userData,           // Datos completos del usuario (tabla usuarios)
     session,
     loading,
-    isLegacyUser,
-    userChannels,
+    
+    // Canales
+    userChannels,       // Todos los canales disponibles
+    recommendedChannels, // Canales recomendados por sector
     channelsLoading,
-    userRole,
-    userPlan, // 💰 Plan del usuario (Ondeón Básico / Ondeón Pro)
-    registroCompleto, // 🔑 Estado de registro completo para usuarios Supabase
-    subscriptionRequired, // 🔒 True si se bloqueó acceso por falta de suscripción
-    clearSubscriptionRequired: () => setSubscriptionRequired(false), // Para limpiar el mensaje
+    loadAllChannels,
+    ensureChannelsLoaded,
+    
+    // Programaciones
+    activeProgramaciones,
+    toggleProgramacionSector,
+    
+    // Estados
+    userRole,           // 'admin' | 'user'
+    registroCompleto,
+    
+    // Auth methods
     signUp,
     signIn,
-    signInWithUsuarios,
     signInWithGoogle,
     signInWithApple,
     signOut,
-    loadUserActiveChannels,
-    ensureChannelsLoaded,
-    forceSyncChannels,
-    // 🎵 Control de reproducción manual
+    
+    // Profile
+    loadUserProfile,
+    updateUserProfile,
+    loadUserInitData,   // Para recargar datos tras registro
+    
+    // Manual playback control
     isManualPlaybackActive,
     manualPlaybackInfo,
     startManualPlayback,
     clearManualPlayback,
-    // 📝 Gestión de perfil de usuario
-    loadUserProfile,
-    updateUserProfile
+    
+    // Compatibilidad con código existente
+    isLegacyUser: false, // Ya no hay usuarios legacy
+    userPlan: null,      // Se puede implementar después
+    subscriptionRequired: false,
+    clearSubscriptionRequired: () => {},
+    loadUserActiveChannels: loadAllChannels, // Alias para compatibilidad
+    forceSyncChannels: () => loadAllChannels(true)
   }
 
   return (
@@ -958,4 +646,4 @@ export const AuthProvider = ({ children }) => {
   )
 }
 
-export default AuthContext 
+export default AuthContext

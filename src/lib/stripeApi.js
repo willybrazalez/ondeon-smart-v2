@@ -11,7 +11,12 @@ import { loadStripe } from '@stripe/stripe-js'
 import logger from './logger'
 
 // Cargar Stripe.js con la publishable key (es pública y segura)
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
+const STRIPE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
+
+// Solo cargar Stripe si la key está configurada
+const stripePromise = STRIPE_KEY 
+  ? loadStripe(STRIPE_KEY) 
+  : (logger.warn('⚠️ VITE_STRIPE_PUBLISHABLE_KEY no configurada - Stripe deshabilitado'), Promise.resolve(null))
 
 // URL base de las Edge Functions de Supabase
 const EDGE_FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1'

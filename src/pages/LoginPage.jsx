@@ -26,20 +26,11 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { signIn, signInWithUsuarios, signInWithGoogle, signInWithApple, subscriptionRequired, clearSubscriptionRequired } = useAuth();
+  const { signIn, signInWithGoogle, signInWithApple, subscriptionRequired, clearSubscriptionRequired } = useAuth();
   
-  // 🔐 Estado para el modal de cambio de contraseña
+  // 🔐 Estado para el modal de recuperación de contraseña (solo email)
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
-  const [userType, setUserType] = useState(null); // 'legacy' | 'supabase' | null
-  const [checkingUserType, setCheckingUserType] = useState(false);
-  const [changePasswordForm, setChangePasswordForm] = useState({
-    username: '',
-    email: '',
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
-    skipCurrentPasswordCheck: false,
-  });
+  const [recoveryEmail, setRecoveryEmail] = useState('');
   const [changePasswordError, setChangePasswordError] = useState('');
   const [changePasswordSuccess, setChangePasswordSuccess] = useState('');
   const [changePasswordLoading, setChangePasswordLoading] = useState(false);
@@ -60,6 +51,50 @@ export default function LoginPage() {
       }
     };
   }, []);
+
+  // 🔑 CRÍTICO: Detectar usuarios autenticados y redirigir según estado de registro
+  // Esto soluciona el caso donde OAuth completa pero el usuario no está registrado en la BD
+  useEffect(() => {
+    const checkAuthenticatedUser = async () => {
+      // No hacer nada si estamos procesando tokens OAuth (el otro useEffect lo maneja)
+      if (window.location.hash?.includes('access_token')) return;
+      
+      // No hacer nada si ya estamos en proceso de carga
+      if (loading) return;
+      
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          logger.dev('🔐 [LoginPage] Usuario ya autenticado detectado:', session.user.email);
+          
+          // Verificar estado de registro en la BD
+          const { data: userData, error: userError } = await supabase
+            .from('usuarios')
+            .select('registro_completo')
+            .eq('auth_user_id', session.user.id)
+            .maybeSingle();
+          
+          if (userError) {
+            logger.warn('⚠️ [LoginPage] Error verificando usuario:', userError);
+          }
+          
+          if (!userData?.registro_completo) {
+            // Usuario autenticado pero sin registro completo -> ir a registro
+            logger.dev('🔄 [LoginPage] Usuario sin registro completo, redirigiendo a /registro');
+            navigate('/registro?continue=true');
+          } else {
+            // Usuario con registro completo -> ir al reproductor
+            logger.dev('✅ [LoginPage] Usuario con registro completo, redirigiendo a home');
+            navigate(getPostLoginRoute(), { replace: true });
+          }
+        }
+      } catch (err) {
+        logger.error('❌ [LoginPage] Error verificando sesión:', err);
+      }
+    };
+    
+    checkAuthenticatedUser();
+  }, [navigate, loading]);
 
   // 🔑 CRÍTICO: Procesar tokens de OAuth en el hash de la URL
   useEffect(() => {
@@ -100,17 +135,19 @@ export default function LoginPage() {
           
           window.history.replaceState(null, '', window.location.pathname);
           
+          // 🔑 Usar maybeSingle() para evitar error cuando el usuario no existe en la BD
           const { data: userData, error: userError } = await supabase
             .from('usuarios')
-            .select('registro_completo, rol_id')
+            .select('registro_completo, rol')
             .eq('auth_user_id', data.user.id)
-            .single();
+            .maybeSingle();
           
           if (userError) {
             logger.warn('⚠️ [OAuth] Error obteniendo datos de usuario:', userError);
           }
           
-          if (!userData?.registro_completo) {
+          // Si no hay datos o registro_completo es false/null -> redirigir a registro
+          if (!userData || !userData.registro_completo) {
             logger.dev('🔄 [OAuth] Usuario no completó registro, redirigiendo a /registro');
             navigate('/registro?continue=true');
             return;
@@ -141,73 +178,37 @@ export default function LoginPage() {
     setLoading(true);
     
     try {
-      // Primero intentar login legacy con tabla usuarios
-      try {
-        const userData = await signInWithUsuarios(form.email, form.password);
-        logger.dev('✅ Login legacy exitoso');
-        
-        const targetRoute = getPostLoginRoute();
-        logger.dev('🧭 Navegando a:', targetRoute);
-        navigate(targetRoute);
-        return;
-      } catch (legacyError) {
-        logger.dev('❌ Login legacy falló, intentando Supabase:', legacyError.message);
-        
-        const supabaseData = await signIn(form.email, form.password);
-        logger.dev('✅ Login Supabase exitoso', supabaseData);
-        
-        const authUserId = supabaseData?.user?.id || supabaseData?.session?.user?.id;
-        
-        if (!authUserId) {
-          const { data: { user: currentUser } } = await supabase.auth.getUser();
-          if (!currentUser) {
-            throw new Error('No se pudo obtener el usuario autenticado');
-          }
-          logger.dev('📌 Usuario obtenido de sesión actual:', currentUser.id);
-          
-          const { data: userData, error: userError } = await supabase
-            .from('usuarios')
-            .select('registro_completo, rol_id')
-            .eq('auth_user_id', currentUser.id)
-            .single();
-          
-          if (userError) {
-            logger.warn('⚠️ Error obteniendo datos de usuario:', userError);
-          }
-          
-          if (!userData?.registro_completo) {
-            logger.dev('🔄 Usuario no completó registro, redirigiendo a /registro');
-            navigate('/registro?continue=true');
-            return;
-          }
-          
-          const targetRoute = getPostLoginRoute();
-          logger.dev('🧭 Navegando a:', targetRoute);
-          navigate(targetRoute);
-          return;
-        }
-        
-        const { data: userData, error: userError } = await supabase
-          .from('usuarios')
-          .select('registro_completo, rol_id')
-          .eq('auth_user_id', authUserId)
-          .single();
-        
-        if (userError) {
-          logger.warn('⚠️ Error obteniendo datos de usuario:', userError);
-        }
-        
-        if (!userData?.registro_completo) {
-          logger.dev('🔄 Usuario no completó registro, redirigiendo a /registro');
-          navigate('/registro?continue=true');
-          return;
-        }
-        
-        const targetRoute = getPostLoginRoute();
-        logger.dev('🧭 Navegando a:', targetRoute);
-        navigate(targetRoute);
+      // v2: Solo usar Supabase Auth
+      const supabaseData = await signIn(form.email, form.password);
+      logger.dev('✅ Login Supabase exitoso', supabaseData);
+      
+      // Obtener usuario actual
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (!currentUser) {
+        throw new Error('No se pudo obtener el usuario autenticado');
+      }
+      
+      // Verificar si completó registro
+      const { data: userData, error: userError } = await supabase
+        .from('usuarios')
+        .select('registro_completo, rol')
+        .eq('auth_user_id', currentUser.id)
+        .maybeSingle();
+      
+      if (userError && userError.code !== 'PGRST116') {
+        logger.warn('⚠️ Error obteniendo datos de usuario:', userError);
+      }
+      
+      if (!userData?.registro_completo) {
+        logger.dev('🔄 Usuario no completó registro, redirigiendo a /registro');
+        navigate('/registro?continue=true');
         return;
       }
+      
+      const targetRoute = getPostLoginRoute();
+      logger.dev('🧭 Navegando a:', targetRoute);
+      navigate(targetRoute);
+      
     } catch (err) {
       logger.error('Error en login:', err);
       
@@ -243,7 +244,7 @@ export default function LoginPage() {
       
       const { data: userData, error: userError } = await supabase
         .from('usuarios')
-        .select('registro_completo, rol_id')
+        .select('registro_completo, rol')
         .eq('auth_user_id', data.user.id)
         .maybeSingle();
       
@@ -300,112 +301,20 @@ export default function LoginPage() {
     }
   };
 
-  // 🔐 Funciones para el modal de cambio de contraseña
-  const handleOpenChangePasswordModal = async (e) => {
+  // 🔐 Funciones para el modal de recuperación de contraseña (v2: solo email)
+  const handleOpenChangePasswordModal = (e) => {
     e.preventDefault();
-    setCheckingUserType(true);
+    setRecoveryEmail(form.email || '');
     setChangePasswordError('');
     setChangePasswordSuccess('');
-    setUserType(null);
-    
-    const identifier = form.email || '';
-    
-    setChangePasswordForm({
-      username: identifier,
-      email: identifier,
-      currentPassword: '',
-      newPassword: '',
-      confirmPassword: '',
-      skipCurrentPasswordCheck: false,
-    });
-    
-    try {
-      const { data: legacyUser, error: legacyError } = await supabase
-        .from('usuarios')
-        .select('id, username')
-        .eq('username', identifier)
-        .maybeSingle();
-      
-      if (legacyUser && !legacyError) {
-        setUserType('legacy');
-        logger.dev('✅ Usuario legacy detectado');
-      } else if (identifier.includes('@')) {
-        setUserType('supabase');
-        logger.dev('✅ Asumiendo usuario Supabase Auth (es email)');
-      } else {
-        setUserType('legacy');
-        logger.dev('✅ Asumiendo usuario legacy (no es email)');
-      }
-    } catch (error) {
-      logger.error('Error detectando tipo de usuario:', error);
-      setUserType('legacy');
-    } finally {
-      setCheckingUserType(false);
-      setShowChangePasswordModal(true);
-    }
+    setShowChangePasswordModal(true);
   };
 
   const handleCloseChangePasswordModal = () => {
     setShowChangePasswordModal(false);
-    setUserType(null);
-    setChangePasswordForm({
-      username: '',
-      email: '',
-      currentPassword: '',
-      newPassword: '',
-      confirmPassword: '',
-      skipCurrentPasswordCheck: false,
-    });
+    setRecoveryEmail('');
     setChangePasswordError('');
     setChangePasswordSuccess('');
-  };
-
-  const handleChangePasswordFormChange = (e) => {
-    setChangePasswordForm({ ...changePasswordForm, [e.target.name]: e.target.value });
-    if (changePasswordError) setChangePasswordError('');
-    if (changePasswordSuccess) setChangePasswordSuccess('');
-  };
-
-  const validateChangePasswordForm = () => {
-    if (userType === 'supabase') {
-      if (!changePasswordForm.email || !changePasswordForm.email.includes('@')) {
-        setChangePasswordError(t('password.email'));
-        return false;
-      }
-      return true;
-    } else {
-      if (!changePasswordForm.username) {
-        setChangePasswordError(t('password.username'));
-        return false;
-      }
-
-      if (!changePasswordForm.skipCurrentPasswordCheck && !changePasswordForm.currentPassword) {
-        setChangePasswordError(t('password.currentPassword'));
-        return false;
-      }
-
-      if (!changePasswordForm.newPassword) {
-        setChangePasswordError(t('password.newPassword'));
-        return false;
-      }
-
-      if (changePasswordForm.newPassword.length < 6) {
-        setChangePasswordError(t('password.passwordMinLength'));
-        return false;
-      }
-
-      if (changePasswordForm.newPassword !== changePasswordForm.confirmPassword) {
-        setChangePasswordError(t('password.passwordsDoNotMatch'));
-        return false;
-      }
-
-      if (changePasswordForm.currentPassword && changePasswordForm.currentPassword === changePasswordForm.newPassword) {
-        setChangePasswordError(t('password.passwordMustBeDifferent'));
-        return false;
-      }
-
-      return true;
-    }
   };
 
   const handleChangePasswordSubmit = async (e) => {
@@ -413,81 +322,53 @@ export default function LoginPage() {
     setChangePasswordError('');
     setChangePasswordSuccess('');
     
-    if (!validateChangePasswordForm()) {
+    if (!recoveryEmail || !recoveryEmail.includes('@')) {
+      setChangePasswordError(t('password.email'));
       return;
     }
 
     setChangePasswordLoading(true);
     
     try {
-      if (userType === 'supabase') {
-        logger.dev('🔐 Enviando email de recuperación para usuario Supabase Auth:', changePasswordForm.email);
-        
-        const { error } = await supabase.auth.resetPasswordForEmail(changePasswordForm.email, {
-          redirectTo: `${window.location.origin}/reset-password`,
-        });
+      logger.dev('🔐 Enviando email de recuperación:', recoveryEmail);
+      
+      const { error } = await supabase.auth.resetPasswordForEmail(recoveryEmail, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
 
-        if (error) {
-          throw error;
-        }
+      if (error) throw error;
 
-        logger.dev('✅ Email de recuperación enviado exitosamente');
-        setChangePasswordSuccess(t('password.recoveryEmailSent'));
-        
-        setTimeout(() => {
-          handleCloseChangePasswordModal();
-        }, 3000);
-        
-      } else {
-        logger.dev('🔐 Cambiando contraseña para usuario legacy:', changePasswordForm.username);
-        
-        await authApi.changePasswordLegacyEdge(
-          changePasswordForm.username,
-          changePasswordForm.currentPassword || null,
-          changePasswordForm.newPassword,
-          changePasswordForm.skipCurrentPasswordCheck
-        );
-
-        logger.dev('✅ Contraseña cambiada exitosamente');
-        
-        setChangePasswordSuccess(t('password.passwordChanged'));
-        
-        setTimeout(() => {
-          handleCloseChangePasswordModal();
-          if (form.email === changePasswordForm.username) {
-            setForm({ ...form, password: '' });
-          }
-        }, 2000);
-      }
+      logger.dev('✅ Email de recuperación enviado');
+      setChangePasswordSuccess(t('password.recoveryEmailSent'));
+      
+      setTimeout(() => {
+        handleCloseChangePasswordModal();
+      }, 3000);
       
     } catch (err) {
-      logger.error('❌ Error al cambiar contraseña:', err);
-      if (userType === 'supabase') {
-        setChangePasswordError(err.message || t('password.recoveryEmailSent'));
-      } else {
-        setChangePasswordError(err.message || t('password.passwordChanged'));
-      }
+      logger.error('❌ Error enviando email:', err);
+      setChangePasswordError(err.message || 'Error al enviar el email');
     } finally {
       setChangePasswordLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-2">
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-4 py-8 safe-area-top safe-area-bottom">
       <WaveBackground isPlaying={true} />
       <div className="w-full max-w-md mx-auto z-10">
         <Card className="p-6 sm:p-8 rounded-2xl shadow-xl flex flex-col items-center w-full bg-card/95 dark:bg-[#181c24]/90 backdrop-blur-md">
           <img 
             src={`${import.meta.env.BASE_URL || ''}assets/icono-ondeon.png`} 
             alt="Logo Ondeón" 
-            className="h-12 sm:h-14 mb-2"
+            className="h-14 sm:h-16 mb-3"
             onError={(e) => {
               console.error('Error al cargar el logo en LoginPage');
               e.target.style.display = 'none';
             }}
           />
-          <h2 className="text-xl sm:text-2xl font-bold text-center mb-1">{t('auth.login')}</h2>
-          <p className="text-center text-gray-700 mb-4 text-sm sm:text-base">
+          <h2 className="text-2xl sm:text-2xl font-bold text-center mb-1">{t('auth.login')}</h2>
+          <p className="text-center text-foreground/60 mb-4 text-sm sm:text-base">
             {t('auth.noAccount')}{' '}
             <Link to="/registro" className="underline text-primary hover:text-primary/80 transition-colors">
               {t('auth.register')}
@@ -577,33 +458,44 @@ export default function LoginPage() {
               {t('auth.forgotPassword')}
             </button>
             <Button 
-              className="w-full bg-black text-white text-sm sm:text-base py-2 sm:py-2.5" 
+              className="w-full bg-gradient-to-r from-[#A2D9F7] to-[#7BC4E0] text-[#0a0e14] font-semibold text-base h-12 rounded-xl shadow-lg shadow-[#A2D9F7]/20 hover:shadow-[#A2D9F7]/40 transition-all active:scale-[0.98]" 
               type="submit"
               disabled={loading}
             >
               {loading ? t('auth.signingIn') : t('auth.signIn')}
             </Button>
           </form>
-          <div className="w-full flex flex-col gap-3 mt-4">
+          
+          {/* Separador */}
+          <div className="w-full flex items-center gap-4 my-6">
+            <div className="flex-1 h-px bg-foreground/10" />
+            <span className="text-xs text-foreground/40 uppercase tracking-wider">{t('auth.or', 'o')}</span>
+            <div className="flex-1 h-px bg-foreground/10" />
+          </div>
+          
+          <div className="w-full flex flex-col gap-3">
             <Button
-              className="w-full flex items-center justify-center gap-2 border border-gray-300 bg-card text-black text-sm sm:text-base py-2 sm:py-2.5"
+              variant="outline"
+              className="w-full flex items-center justify-center gap-3 h-12 rounded-xl border-foreground/10 bg-white/5 hover:bg-white/10 text-foreground transition-all active:scale-[0.98]"
               onClick={handleGoogleLogin}
               disabled={loading}
             >
-              <FcGoogle size={20} /> {t('auth.continueWithGoogle')}
+              <FcGoogle size={22} /> 
+              <span className="font-medium">{t('auth.continueWithGoogle')}</span>
             </Button>
             <Button
-              className="w-full flex items-center justify-center gap-2 border border-gray-300 bg-black text-white text-sm sm:text-base py-2 sm:py-2.5"
+              className="w-full flex items-center justify-center gap-3 h-12 rounded-xl bg-white text-black hover:bg-white/90 transition-all active:scale-[0.98]"
               onClick={handleAppleLogin}
               disabled={loading}
             >
-              <FaApple size={20} /> {t('auth.continueWithApple')}
+              <FaApple size={22} /> 
+              <span className="font-medium">{t('auth.continueWithApple')}</span>
             </Button>
           </div>
         </Card>
       </div>
 
-      {/* 🔐 Modal de Cambio de Contraseña */}
+      {/* 🔐 Modal de Recuperación de Contraseña (v2: solo email) */}
       <AnimatePresence>
         {showChangePasswordModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -616,15 +508,9 @@ export default function LoginPage() {
               <div className="p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-xl font-bold">
-                      {userType === 'supabase' ? t('password.recoverPassword') : t('password.changePassword')}
-                    </h3>
+                    <h3 className="text-xl font-bold">{t('password.recoverPassword')}</h3>
                     <p className="text-sm text-muted-foreground mt-1">
-                      {userType === 'supabase' 
-                        ? t('password.passwordRecoveryInstructions')
-                        : checkingUserType 
-                          ? t('password.detectingUserType')
-                          : t('password.enterCurrentPassword')}
+                      {t('password.passwordRecoveryInstructions')}
                     </p>
                   </div>
                   <Button
@@ -637,186 +523,59 @@ export default function LoginPage() {
                   </Button>
                 </div>
 
-                {checkingUserType && (
-                  <div className="text-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                    <p className="text-sm text-muted-foreground mt-2">{t('password.detectingUserType')}</p>
+                {changePasswordError && (
+                  <Alert variant="destructive" className="mb-4">
+                    <XCircle className="h-4 w-4" />
+                    <AlertDescription>{changePasswordError}</AlertDescription>
+                  </Alert>
+                )}
+
+                {changePasswordSuccess && (
+                  <Alert className="mb-4 border-green-500 bg-green-50 dark:bg-green-900/20">
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <AlertDescription className="text-green-800 dark:text-green-200">
+                      {changePasswordSuccess}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <form onSubmit={handleChangePasswordSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="recoveryEmail">{t('password.email')}</Label>
+                    <Input
+                      id="recoveryEmail"
+                      type="email"
+                      value={recoveryEmail}
+                      onChange={(e) => setRecoveryEmail(e.target.value)}
+                      required
+                      disabled={changePasswordLoading}
+                      placeholder="tu@email.com"
+                      className="w-full"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Te enviaremos un enlace para restablecer tu contraseña.
+                    </p>
                   </div>
-                )}
 
-                {!checkingUserType && (
-                  <>
-                    {changePasswordError && (
-                      <Alert variant="destructive" className="mb-4">
-                        <XCircle className="h-4 w-4" />
-                        <AlertDescription>{changePasswordError}</AlertDescription>
-                      </Alert>
-                    )}
-
-                    {changePasswordSuccess && (
-                      <Alert className="mb-4 border-green-500 bg-green-50 dark:bg-green-900/20">
-                        <CheckCircle2 className="h-4 w-4 text-green-600" />
-                        <AlertDescription className="text-green-800 dark:text-green-200">
-                          {changePasswordSuccess}
-                        </AlertDescription>
-                      </Alert>
-                    )}
-
-                    <form onSubmit={handleChangePasswordSubmit} className="space-y-4">
-                      {userType === 'supabase' ? (
-                        <>
-                          <div className="space-y-2">
-                            <Label htmlFor="changePasswordEmail">{t('password.email')}</Label>
-                            <Input
-                              id="changePasswordEmail"
-                              name="email"
-                              type="email"
-                              value={changePasswordForm.email}
-                              onChange={handleChangePasswordFormChange}
-                              required
-                              disabled={changePasswordLoading}
-                              placeholder="tu@email.com"
-                              className="w-full"
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              {t('password.passwordRecoveryInstructions')}
-                            </p>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="space-y-2">
-                            <Label htmlFor="changePasswordUsername">{t('password.username')}</Label>
-                            <Input
-                              id="changePasswordUsername"
-                              name="username"
-                              type="text"
-                              value={changePasswordForm.username}
-                              onChange={handleChangePasswordFormChange}
-                              required
-                              disabled={changePasswordLoading}
-                              placeholder={t('password.username')}
-                              className="w-full"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label htmlFor="changePasswordCurrent">{t('password.currentPassword')}</Label>
-                            <Input
-                              id="changePasswordCurrent"
-                              name="currentPassword"
-                              type="password"
-                              value={changePasswordForm.currentPassword}
-                              onChange={handleChangePasswordFormChange}
-                              required={!changePasswordForm.skipCurrentPasswordCheck}
-                              disabled={changePasswordLoading || changePasswordForm.skipCurrentPasswordCheck}
-                              placeholder={t('password.currentPassword')}
-                              className="w-full"
-                            />
-                          </div>
-
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="checkbox"
-                              id="skipCurrentPasswordCheck"
-                              name="skipCurrentPasswordCheck"
-                              checked={changePasswordForm.skipCurrentPasswordCheck}
-                              onChange={(e) => {
-                                setChangePasswordForm({
-                                  ...changePasswordForm,
-                                  skipCurrentPasswordCheck: e.target.checked,
-                                  currentPassword: e.target.checked ? '' : changePasswordForm.currentPassword
-                                });
-                              }}
-                              disabled={changePasswordLoading}
-                              className="rounded border-gray-300"
-                            />
-                            <label htmlFor="skipCurrentPasswordCheck" className="text-xs text-muted-foreground">
-                              {t('password.forgotCurrentPassword')}
-                            </label>
-                          </div>
-
-                          {changePasswordForm.skipCurrentPasswordCheck && (
-                            <Alert variant="destructive" className="mb-2">
-                              <AlertCircle className="h-4 w-4" />
-                              <AlertDescription className="text-xs">
-                                <strong>{t('common.error')}:</strong> {t('password.skipPasswordWarning')}
-                              </AlertDescription>
-                            </Alert>
-                          )}
-
-                          <div className="space-y-2">
-                            <Label htmlFor="changePasswordNew">{t('password.newPassword')}</Label>
-                            <Input
-                              id="changePasswordNew"
-                              name="newPassword"
-                              type="password"
-                              value={changePasswordForm.newPassword}
-                              onChange={handleChangePasswordFormChange}
-                              required
-                              disabled={changePasswordLoading}
-                              placeholder={t('password.passwordMinLength')}
-                              className="w-full"
-                              minLength={6}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              {t('password.passwordMinLength')}
-                            </p>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label htmlFor="changePasswordConfirm">{t('password.confirmPassword')}</Label>
-                            <Input
-                              id="changePasswordConfirm"
-                              name="confirmPassword"
-                              type="password"
-                              value={changePasswordForm.confirmPassword}
-                              onChange={handleChangePasswordFormChange}
-                              required
-                              disabled={changePasswordLoading}
-                              placeholder={t('password.confirmPassword')}
-                              className="w-full"
-                            />
-                          </div>
-                        </>
-                      )}
-
-                      <div className="flex gap-2 pt-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="flex-1"
-                          onClick={handleCloseChangePasswordModal}
-                          disabled={changePasswordLoading}
-                        >
-                          {t('common.cancel')}
-                        </Button>
-                        <Button
-                          type="submit"
-                          className="flex-1"
-                          disabled={changePasswordLoading}
-                        >
-                          {changePasswordLoading 
-                            ? (userType === 'supabase' ? t('password.sending') : t('password.changing')) 
-                            : (userType === 'supabase' ? t('password.sendEmail') : t('password.changePasswordButton'))}
-                        </Button>
-                      </div>
-                    </form>
-
-                    <div className="mt-4 pt-4 border-t">
-                      <Alert>
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertDescription className="text-xs text-muted-foreground">
-                          {userType === 'supabase' ? (
-                            <strong>{t('password.supabaseUserInfo')}</strong>
-                          ) : (
-                            <strong>{t('password.legacyUserInfo')}</strong>
-                          )}
-                        </AlertDescription>
-                      </Alert>
-                    </div>
-                  </>
-                )}
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={handleCloseChangePasswordModal}
+                      disabled={changePasswordLoading}
+                    >
+                      {t('common.cancel')}
+                    </Button>
+                    <Button
+                      type="submit"
+                      className="flex-1"
+                      disabled={changePasswordLoading}
+                    >
+                      {changePasswordLoading ? t('password.sending') : t('password.sendEmail')}
+                    </Button>
+                  </div>
+                </form>
               </div>
             </motion.div>
           </div>

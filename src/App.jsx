@@ -49,7 +49,6 @@ import { channelsApi } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { useAutoDj } from './hooks/useAutodjHook';
 import autoDj from './services/autoDjService';
-import { contentAssignmentsApi } from '@/lib/api';
 import advancedPresenceService from '@/services/advancedPresenceService';
 import scheduledContentService from '@/services/scheduledContentService';
 import logger from '@/lib/logger';
@@ -57,7 +56,9 @@ import { useSessionMonitor } from '@/hooks/useSessionMonitor';
 import SessionClosedModal from '@/components/SessionClosedModal';
 import optimizedPresenceService from '@/services/optimizedPresenceService';
 import { PlayerProvider } from '@/contexts/PlayerContext';
-// DesktopOnlyPage eliminado
+import { useIsMobile } from '@/hooks/useIsMobile';
+import MobileLayout from '@/layouts/MobileLayout';
+import BottomNavigation from '@/components/mobile/BottomNavigation';
 
 // Siempre es plataforma web/móvil (Electron eliminado)
 export const getIsWebPlatform = () => true;
@@ -154,20 +155,19 @@ const PlayerControls = ({
 
   return (
     <>
-      {/* Información de la canción y controles */}
-      <div className="fixed left-1/2 top-[20%] -translate-x-1/2 z-30 flex flex-col items-center gap-4 w-full max-w-md px-4">
+      {/* Información de la canción y controles - Adaptado para móvil */}
+      <div className="fixed left-1/2 top-[15%] md:top-[20%] -translate-x-1/2 z-30 flex flex-col items-center gap-3 md:gap-4 w-full max-w-md px-4">
         {/* Control de canal con imagen */}
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-2 md:gap-3 mb-2 md:mb-4">
           <motion.button
             onClick={onPrevChannel}
             whileHover={isBlocked ? {} : { scale: 1.1 }}
             whileTap={isBlocked ? {} : { scale: 0.95 }}
             disabled={isBlocked}
             title={blockMessage || t('player.previousChannel')}
-            className={`w-10 h-10 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/5 backdrop-blur-lg
-                      hover:bg-black/10 dark:hover:bg-white/10 transition-all duration-300
+            className={`w-11 h-11 md:w-10 md:h-10 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/5 backdrop-blur-lg
+                      active:bg-black/20 dark:active:bg-white/20 md:hover:bg-black/10 md:dark:hover:bg-white/10 transition-all duration-200
                       shadow-[0_0_15px_rgba(162,217,247,0.2)] dark:shadow-[0_0_15px_rgba(255,255,255,0.1)]
-                      hover:shadow-[0_0_20px_rgba(162,217,247,0.3)] dark:hover:shadow-[0_0_20px_rgba(255,255,255,0.2)]
                       ${isBlocked ? 'opacity-30 cursor-not-allowed' : ''}`}
           >
             <ChevronLeft className="w-6 h-6 text-black/70 dark:text-white/70" />
@@ -175,7 +175,7 @@ const PlayerControls = ({
 
           {/* Imagen y nombre del canal */}
           <motion.div 
-            className="flex items-center gap-3 px-4 py-2 rounded-full bg-black/5 dark:bg-white/5 backdrop-blur-lg
+            className="flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-full bg-black/5 dark:bg-white/5 backdrop-blur-lg
                       shadow-[0_0_20px_rgba(162,217,247,0.2)] dark:shadow-[0_0_20px_rgba(255,255,255,0.1)]"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -185,13 +185,13 @@ const PlayerControls = ({
               <img 
                 src={channelImage} 
                 alt={channelName}
-                className="w-8 h-8 rounded-full object-cover shadow-md"
+                className="w-7 h-7 md:w-8 md:h-8 rounded-full object-cover shadow-md"
                 onError={(e) => {
                   e.target.style.display = 'none';
                 }}
               />
             )}
-            <span className="text-sm font-sans font-light tracking-wider text-black/80 dark:text-white/80">
+            <span className="text-xs md:text-sm font-sans font-light tracking-wider text-black/80 dark:text-white/80 max-w-[120px] md:max-w-none truncate">
               {channelName || t('player.loading')}
             </span>
           </motion.div>
@@ -202,10 +202,9 @@ const PlayerControls = ({
             whileTap={isBlocked ? {} : { scale: 0.95 }}
             disabled={isBlocked}
             title={blockMessage || t('player.nextChannel')}
-            className={`w-10 h-10 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/5 backdrop-blur-lg
-                      hover:bg-black/10 dark:hover:bg-white/10 transition-all duration-300
+            className={`w-11 h-11 md:w-10 md:h-10 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/5 backdrop-blur-lg
+                      active:bg-black/20 dark:active:bg-white/20 md:hover:bg-black/10 md:dark:hover:bg-white/10 transition-all duration-200
                       shadow-[0_0_15px_rgba(162,217,247,0.2)] dark:shadow-[0_0_15px_rgba(255,255,255,0.1)]
-                      hover:shadow-[0_0_20px_rgba(162,217,247,0.3)] dark:hover:shadow-[0_0_20px_rgba(255,255,255,0.2)]
                       ${isBlocked ? 'opacity-30 cursor-not-allowed' : ''}`}
           >
             <ChevronRight className="w-6 h-6 text-black/70 dark:text-white/70" />
@@ -213,7 +212,7 @@ const PlayerControls = ({
         </div>
 
         {/* Título de la canción con efecto marquee */}
-        <div className="overflow-hidden w-full px-4">
+        <div className="overflow-hidden w-full px-2 md:px-4">
           {titleNeedsScroll ? (
             <div className="flex animate-marquee-slow hover:animation-paused">
         <motion.h1 
@@ -221,14 +220,14 @@ const PlayerControls = ({
           key={`title-${displayTitle}`}
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-                className="text-2xl font-sans font-light tracking-wide text-black/90 dark:text-white/90 whitespace-nowrap pr-12"
+                className="text-xl md:text-2xl font-sans font-light tracking-wide text-black/90 dark:text-white/90 whitespace-nowrap pr-12"
         >
           {displayTitle}
         </motion.h1>
               <motion.h1 
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="text-2xl font-sans font-light tracking-wide text-black/90 dark:text-white/90 whitespace-nowrap pr-12"
+                className="text-xl md:text-2xl font-sans font-light tracking-wide text-black/90 dark:text-white/90 whitespace-nowrap pr-12"
               >
                 {displayTitle}
               </motion.h1>
@@ -239,7 +238,7 @@ const PlayerControls = ({
               key={`title-${displayTitle}`}
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-2xl font-sans font-light tracking-wide text-black/90 dark:text-white/90 text-center truncate"
+              className="text-xl md:text-2xl font-sans font-light tracking-wide text-black/90 dark:text-white/90 text-center truncate"
             >
               {displayTitle}
             </motion.h1>
@@ -247,7 +246,7 @@ const PlayerControls = ({
         </div>
         
         {/* Artista con efecto marquee */}
-        <div className="overflow-hidden w-full px-4">
+        <div className="overflow-hidden w-full px-2 md:px-4">
           {artistNeedsScroll ? (
             <div className="flex animate-marquee-slow hover:animation-paused">
         <motion.h2 
@@ -256,7 +255,7 @@ const PlayerControls = ({
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-                className="text-lg font-sans font-extralight tracking-wider text-black/70 dark:text-white/70 whitespace-nowrap pr-12"
+                className="text-base md:text-lg font-sans font-extralight tracking-wider text-black/70 dark:text-white/70 whitespace-nowrap pr-12"
         >
           {displayArtist}
         </motion.h2>
@@ -264,7 +263,7 @@ const PlayerControls = ({
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
-                className="text-lg font-sans font-extralight tracking-wider text-black/70 dark:text-white/70 whitespace-nowrap pr-12"
+                className="text-base md:text-lg font-sans font-extralight tracking-wider text-black/70 dark:text-white/70 whitespace-nowrap pr-12"
               >
                 {displayArtist}
               </motion.h2>
@@ -276,7 +275,7 @@ const PlayerControls = ({
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className="text-lg font-sans font-extralight tracking-wider text-black/70 dark:text-white/70 text-center truncate"
+              className="text-base md:text-lg font-sans font-extralight tracking-wider text-black/70 dark:text-white/70 text-center truncate"
             >
               {displayArtist}
             </motion.h2>
@@ -311,8 +310,8 @@ const VolumeControl = ({ side, icon: Icon, value, onChange, disabled = false }) 
 
   return (
     <>
-      {/* Escritorio: sliders verticales con burbuja y mute */}
-      <div className={`flex fixed top-1/2 -translate-y-1/2 flex-col items-center gap-2 p-4 z-30 ${side === 'left' ? 'volume-left' : 'volume-right'}`}>
+      {/* Escritorio: sliders verticales con burbuja y mute - Oculto en móvil */}
+      <div className={`hidden md:flex fixed top-1/2 -translate-y-1/2 flex-col items-center gap-2 p-4 z-30 ${side === 'left' ? 'volume-left' : 'volume-right'}`}>
         <div className="relative h-40 flex flex-col items-center">
           <div className="absolute -top-6 text-xs px-2 py-0.5 rounded-full bg-black/10 dark:bg-white/10 backdrop-blur-md">
             {value}%
@@ -350,8 +349,6 @@ const VolumeControl = ({ side, icon: Icon, value, onChange, disabled = false }) 
           )}
         </div>
       </div>
-
-      {/* Móvil: sin controles aquí (panel combinado más abajo) */}
     </>
   );
 };
@@ -359,6 +356,9 @@ const VolumeControl = ({ side, icon: Icon, value, onChange, disabled = false }) 
 // Componente interno que usa useLocation
 function AppContent() {
   const location = useLocation();
+  
+  // 📱 Detectar dispositivo móvil
+  const { isMobile, isTablet, isTouchDevice } = useIsMobile();
   
   // 🔧 Helper para normalizar rutas (quitar trailing slash excepto para '/')
   // Esto evita problemas cuando la URL viene con trailing slash (ej: /login/ vs /login)
@@ -389,7 +389,7 @@ function AppContent() {
   const { t } = useTranslation();
   
   const { theme } = useTheme();
-  const { user, loading: authLoading, userChannels, channelsLoading, signOut, ensureChannelsLoaded, loadUserActiveChannels, isManualPlaybackActive, manualPlaybackInfo, registroCompleto, isLegacyUser } = useAuth();
+  const { user, loading: authLoading, userChannels, channelsLoading, signOut, ensureChannelsLoaded, loadUserActiveChannels, isManualPlaybackActive, manualPlaybackInfo, registroCompleto } = useAuth();
   const { roleName, hasPermission, uiConfig, userRole } = useRole();
   const navigate = useNavigate();
   
@@ -403,17 +403,37 @@ function AppContent() {
     // 2. No estamos cargando
     // 3. registroCompleto es explícitamente false (no null/undefined)
     // 4. No estamos ya en la página de registro
-    // 5. Es un usuario de Supabase Auth (no legacy)
     const isRegistroRoute = currentPath.startsWith('/registro');
     const isLoginRoute = currentPath === '/login';
     const isAuthRouteLocal = isRegistroRoute || isLoginRoute || currentPath === '/descarga';
-    
     
     if (user && !authLoading && registroCompleto === false && !isAuthRouteLocal) {
       console.log('🔄 [Registro] Usuario sin registro completo, redirigiendo a /registro');
       navigate('/registro?continue=true');
     }
-  }, [user, authLoading, registroCompleto, currentPath, navigate, isLegacyUser, userRole, isWeb]);
+  }, [user, authLoading, registroCompleto, currentPath, navigate]);
+
+  // 🔑 FALLBACK: Si registroCompleto no es true después de 3 segundos, redirigir a registro
+  // Esto evita que el usuario se quede atascado en "Verificando cuenta..."
+  // También actúa como red de seguridad si el redirect normal falla
+  React.useEffect(() => {
+    const isRegistroRoute = currentPath.startsWith('/registro');
+    const isLoginRoute = currentPath === '/login';
+    const isAuthRouteLocal = isRegistroRoute || isLoginRoute || currentPath === '/descarga';
+    
+    // Solo aplicar si hay usuario, no estamos en ruta de auth, y registroCompleto NO es true
+    if (user && !isAuthRouteLocal && registroCompleto !== true && !authLoading && isWeb) {
+      console.log('⏳ [Fallback] registroCompleto no es true, iniciando timeout de seguridad (3s)...');
+      
+      const timeoutId = setTimeout(() => {
+        // Después de 3 segundos, si aún no es true, redirigir a registro
+        console.log('⚠️ [Fallback] Timeout alcanzado - registroCompleto:', registroCompleto, '- redirigiendo a /registro');
+        navigate('/registro?continue=true');
+      }, 3000); // Reducido a 3 segundos para evitar espera larga
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [user, registroCompleto, authLoading, currentPath, navigate, isWeb]);
 
   // 🔑 NOTA: La verificación de suscripción para gestores en Electron se hace en AuthContext
   // Si el gestor no tiene suscripción activa, AuthContext NO establece la sesión y abre el dashboard web
@@ -743,16 +763,28 @@ function AppContent() {
   const currentTrackInfo = getCurrentTrackInfo();
   const djStats = getDjStats();
 
+  // Ref para evitar múltiples cargas de canales
+  const channelsLoadAttemptedRef = React.useRef(false);
+  
   // Cargar canales bajo demanda desde cualquier ruta - SOLO si el reproductor está habilitado
   useEffect(() => {
     if (!shouldEnablePlayer) return;
     
-    // Cargar canales si no hay suscripción Realtime activa y no hay canales
-    if (!window.channelsRealtimeActive && userChannels.length === 0) {
+    // Solo intentar cargar una vez - evitar loop infinito
+    if (channelsLoadAttemptedRef.current) return;
+    
+    // Cargar canales si no hay suscripción Realtime activa, no hay canales, y no estamos cargando
+    if (!window.channelsRealtimeActive && userChannels.length === 0 && !channelsLoading) {
+      channelsLoadAttemptedRef.current = true;
       logger.dev('🔄 App.jsx - Cargando canales del usuario');
       ensureChannelsLoaded();
     }
-  }, [shouldEnablePlayer, ensureChannelsLoaded, userChannels.length]);
+  }, [shouldEnablePlayer, userChannels.length, channelsLoading]);
+  
+  // Resetear el flag cuando el usuario cambia
+  useEffect(() => {
+    channelsLoadAttemptedRef.current = false;
+  }, [user?.id]);
 
   // 🔧 NUEVO: Actualizar estado de presencia según actividad del reproductor
   // 🚫 DESHABILITADO para usuarios básicos en web
@@ -1117,9 +1149,14 @@ function AppContent() {
   // Detectar si estamos en una ruta de admin
   const isAdminRoute = currentPath.startsWith('/admin');
 
-  // 🔑 CRÍTICO: Mostrar loading mientras se determina registroCompleto para usuarios de Supabase Auth
+  // 🔑 CRÍTICO: Mostrar loading mientras registroCompleto NO es true
   // Esto evita el flash del reproductor antes de la redirección a /registro
-  if (user && !isLegacyUser && registroCompleto === null && !isAuthRoute && isWeb) {
+  // Se muestra cuando:
+  // 1. Hay usuario autenticado
+  // 2. registroCompleto NO es true (puede ser null, undefined, o false)
+  // 3. No estamos en ruta de autenticación (login/registro)
+  // 4. Estamos en web
+  if (user && registroCompleto !== true && !isAuthRoute && isWeb) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0a0e14]">
         <div className="text-center">
@@ -1130,21 +1167,66 @@ function AppContent() {
     );
   }
 
+  // Determinar si mostrar UI móvil
+  const showMobileUI = isMobile || isTablet;
+  const showHeader = user && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute;
+  const showNavigation = user && !isAuthRoute && !isAdminRoute;
+
   return (
     <div className={`relative min-h-screen text-foreground flex flex-col bg-background font-sans`}>
       {/* 🔐 Modal de sesión cerrada */}
       <SessionClosedModal isOpen={sessionClosed} />
       
-      {/* 🖥️ Background dinámico solo en desktop y en rutas del reproductor */}
-      {user && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && !isWeb && (
+      {/* 🖥️ Background dinámico en rutas del reproductor (desktop y móvil) */}
+      {user && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && currentPath === '/' && (
         <DynamicBackground 
           isPlaying={djState?.isPlaying || false} 
           theme={theme}
         />
       )}
       <div className="relative z-10 flex flex-col flex-1">
-        {/* Header flotante (solo con usuario autenticado, fuera de auth, admin y dashboards web) */}
-        {user && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && (
+        {/* 📱 Header - Versión móvil compacta */}
+        {showHeader && showMobileUI && (
+          <header className={`fixed top-0 left-0 right-0 z-[60] safe-area-top
+            ${currentPath !== '/' 
+              ? 'bg-background/90 backdrop-blur-xl border-b border-white/5' 
+              : 'bg-transparent'}`}>
+            <div className="flex items-center justify-between h-14 px-4">
+              {/* Logo */}
+              <div className="flex items-center gap-2">
+                <img
+                  src="/assets/icono-ondeon.png"
+                  alt="Ondeón"
+                  className="h-10 w-10 drop-shadow-lg"
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+                <span className="text-lg tracking-[0.15em] font-light text-[#A2D9F7]">SMART</span>
+              </div>
+              
+              {/* Acciones */}
+              <div className="flex items-center gap-1">
+                <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 mr-2">
+                  <span className="text-xs text-foreground/70 max-w-[100px] truncate">
+                    {user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email?.split('@')[0] || t('common.user')}
+                  </span>
+                  <Circle size={6} className="fill-green-500 text-green-500 flex-shrink-0" />
+                </div>
+                <ThemeToggle />
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={handleLogout}
+                  className="h-9 w-9 text-foreground/50 hover:text-red-400"
+                >
+                  <LogOut size={18} />
+                </Button>
+              </div>
+            </div>
+          </header>
+        )}
+
+        {/* 🖥️ Header - Versión desktop */}
+        {showHeader && !showMobileUI && (
           <header className={`fixed top-0 left-0 right-0 w-full px-8 py-6 z-[60] transition-all duration-300
             ${currentPath !== '/' 
               ? 'backdrop-blur-lg bg-background/80' 
@@ -1161,7 +1243,6 @@ function AppContent() {
                     e.target.style.display = 'none';
                   }}
                 />
-                {/* Mostrar texto SMART junto al logo en todas las versiones */}
                 <span className="text-2xl tracking-[0.2em] font-light text-[#A2D9F7] font-sans">SMART</span>
               </div>
               <div className="flex items-center gap-2 sm:gap-4 px-2 py-1 rounded-2xl bg-black/5 dark:bg-white/5 backdrop-blur-md border border-white/10 dark:border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.15)] ml-auto">
@@ -1201,8 +1282,12 @@ function AppContent() {
           </header>
         )}
 
-        <div className={`flex-1 relative ${(isAuthRoute || !user || isAdminRoute || isWebDashboardRoute) ? 'pt-0' : 'pt-28'}`}>
-          <main className={`${(isAuthRoute || !user || isAdminRoute || isWebDashboardRoute) ? 'w-full mx-0 px-0 py-0 pb-0 max-w-none' : 'w-full max-w-5xl mx-auto px-16 sm:px-20 md:px-24 py-6 pb-32'}`}>
+        <div className={`flex-1 relative ${(isAuthRoute || !user || isAdminRoute || isWebDashboardRoute) ? 'pt-0' : showMobileUI ? 'pt-14' : 'pt-28'} ${showMobileUI && showNavigation ? 'pb-20' : ''}`}>
+          <main className={`${(isAuthRoute || !user || isAdminRoute || isWebDashboardRoute) 
+            ? 'w-full mx-0 px-0 py-0 pb-0 max-w-none' 
+            : showMobileUI 
+              ? 'w-full px-4 py-4' 
+              : 'w-full max-w-5xl mx-auto px-16 sm:px-20 md:px-24 py-6 pb-32'}`}>
             <PlayerProvider value={{ isPlaying: djState?.isPlaying || false, currentChannel: currentChannel || djState?.currentChannel, currentSong: djState?.currentSong }}>
             <Routes>
               {user ? (
@@ -1326,31 +1411,14 @@ function AppContent() {
           </footer>
         )}
 
-        {/* Navegación inferior (responsiva): versión móvil y versión escritorio - Solo en desktop, fuera de admin y dashboards web */}
-        {user && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && (
-        <>
-          {/* Móvil: barra flotante original (idéntica a navegador) */}
-          <div 
-            className="sm:hidden fixed left-1/2 -translate-x-1/2 z-50 bottom-16"
-            style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
-          >
-            <div className="flex items-center gap-5 px-3 py-2 rounded-2xl backdrop-blur-lg bg-black/10 dark:bg-white/10 shadow-[0_0_20px_rgba(0,0,0,0.15)] dark:shadow-[0_0_20px_rgba(255,255,255,0.1)]">
-              {getNavItemsForRole(hasPermission, t).map((item) => (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  title={item.label}
-                  className={`flex items-center justify-center rounded-xl transition-transform duration-150 ${currentPath === item.path ? 'text-primary scale-110' : 'text-foreground/80 hover:text-primary hover:scale-105'}`}
-                  style={{ width: '40px', height: '40px' }}
-                >
-                  <item.icon className="w-5 h-5" />
-                </Link>
-              ))}
-            </div>
-          </div>
+        {/* 📱 Navegación inferior MÓVIL - Nuevo diseño tipo app */}
+        {showNavigation && showMobileUI && (
+          <BottomNavigation />
+        )}
 
-          {/* Escritorio: botones flotantes como antes */}
-          <div className="hidden sm:flex fixed bottom-20 left-1/2 -translate-x-1/2 justify-center gap-12 z-50">
+        {/* 🖥️ Navegación inferior DESKTOP - Botones flotantes */}
+        {user && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && !showMobileUI && (
+          <div className="fixed bottom-20 left-1/2 -translate-x-1/2 flex justify-center gap-12 z-50">
             <AnimatePresence>
               {getNavItemsForRole(hasPermission, t).map((item, index) => (
                 <motion.div 
@@ -1391,7 +1459,6 @@ function AppContent() {
               ))}
             </AnimatePresence>
           </div>
-        </>
         )}
       </div>
     </div>
