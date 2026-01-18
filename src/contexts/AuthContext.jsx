@@ -6,18 +6,7 @@ import optimizedPresenceService from '@/services/optimizedPresenceService'
 import lightweightHeartbeatService from '@/services/lightweightHeartbeatService'
 import logger from '@/lib/logger'
 
-// 🌐 Helper para detectar si estamos en versión web (no Electron/Desktop)
-const isWebPlatform = () => {
-  if (typeof window === 'undefined') return false;
-  return window.location.protocol !== 'file:' && !window.electronAPI;
-};
-
-// Constantes de roles
-const ROLES = {
-  BASICO: 1,
-  GESTOR: 2,
-  ADMINISTRADOR: 3
-};
+// Sistema simplificado - todos los usuarios tienen el mismo tipo de acceso
 
 // Lazy loader para playbackLogger (evita importación circular)
 let playbackLoggerLazy = null;
@@ -136,42 +125,31 @@ export const AuthProvider = ({ children }) => {
           logger.dev('🔄 Rol del usuario desde localStorage:', rolId)
             logger.dev('🔄 Usuario completo desde localStorage:', legacyUser)
             
-            // 🚫 BLOQUEO WEB: No iniciar servicios de presencia para usuarios básicos en web
-            const isWeb = isWebPlatform();
-            const isBasicUser = rolId === ROLES.BASICO;
-            
-            if (isWeb && isBasicUser) {
-              logger.dev('🚫 Usuario básico en web - NO se iniciarán servicios de presencia ni reproductor');
-              // NO cargar canales ni iniciar servicios - solo establecer el usuario para la página de descarga
-              logger.dev('ℹ️ Usuario básico en web establecido - mostrando página de descarga desktop');
-            } else {
-              // 🚀 SISTEMA OPTIMIZADO: Con heartbeats ligeros, consumo ~7 GB/mes para 500 usuarios
-              const userId = legacyUser?.id || legacyUser?.usuario_id || legacyUser?.user_id;
-              if (userId) {
-                try {
-                  const { getAppVersion } = await import('@/lib/appVersion');
-                  const appVersion = await getAppVersion();
-                  await optimizedPresenceService.startPresence(userId, {
-                    appVersion,
-                    deviceInfo: {
-                      userAgent: navigator.userAgent,
-                      platform: navigator.platform
-                    }
-                  });
-                  logger.dev('✅ Servicio de presencia OPTIMIZADO iniciado desde localStorage');
-                  
-                  // 💓 Iniciar heartbeat ligero para detección de desconexiones
-                  lightweightHeartbeatService.start(userId);
-                  logger.dev('💓 Heartbeat ligero iniciado - detectará desconexiones en 2-3 min');
-                } catch (e) {
-                  logger.warn('⚠️ No se pudo iniciar servicio de presencia:', e);
-                }
+            // 🚀 Iniciar servicio de presencia
+            const userId = legacyUser?.id || legacyUser?.usuario_id || legacyUser?.user_id;
+            if (userId) {
+              try {
+                const { getAppVersion } = await import('@/lib/appVersion');
+                const appVersion = await getAppVersion();
+                await optimizedPresenceService.startPresence(userId, {
+                  appVersion,
+                  deviceInfo: {
+                    userAgent: navigator.userAgent,
+                    platform: navigator.platform
+                  }
+                });
+                logger.dev('✅ Servicio de presencia iniciado');
+                
+                // 💓 Iniciar heartbeat ligero
+                lightweightHeartbeatService.start(userId);
+                logger.dev('💓 Heartbeat ligero iniciado');
+              } catch (e) {
+                logger.warn('⚠️ No se pudo iniciar servicio de presencia:', e);
               }
+            }
             
-              // NO cargar canales automáticamente - solo establecer el usuario
-              // Los canales se cargarán cuando el usuario navegue a una página que los requiera
-              logger.dev('ℹ️ Usuario legacy establecido - canales se cargarán bajo demanda');
-            };
+            // Los canales se cargarán bajo demanda
+            logger.dev('ℹ️ Usuario establecido - canales se cargarán bajo demanda');
           
           setLoading(false)
           return
@@ -186,8 +164,8 @@ export const AuthProvider = ({ children }) => {
       // getSession() solo lee el cache local, getUser() valida el token con Supabase
       const { data: { user: authUser }, error: authError } = await supabase.auth.getUser()
       
-      // Detectar si estamos en Electron
-      const isElectronApp = typeof window !== 'undefined' && (window.location.protocol === 'file:' || !!window.electronAPI);
+      // App web/móvil - Electron ya no está soportado
+      const isElectronApp = false;
       
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:getInitialSession',message:'Supabase auth check',data:{hasAuthUser:!!authUser,authError:authError?.message,email:authUser?.email,isElectronApp},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix-v3',hypothesisId:'H3'})}).catch(()=>{});
@@ -229,7 +207,7 @@ export const AuthProvider = ({ children }) => {
           
           if (userData && !userError) {
             // 🔑 CRÍTICO: Si es gestor en Electron, verificar suscripción ANTES de establecer sesión
-            const isGestor = userData.rol_id === ROLES.GESTOR;
+            const isGestor = userData.rol_id === 2;
             
             if (isGestor && isElectronApp && userData.registro_completo) {
               logger.dev('🔍 Gestor en Electron con registro completo - verificando suscripción...');
@@ -259,11 +237,8 @@ export const AuthProvider = ({ children }) => {
                 // Cerrar sesión de Supabase
                 await supabase.auth.signOut();
                 
-                // Abrir dashboard web para renovar
-                if (window.electronAPI?.openExternal) {
-                  const webDashboardUrl = 'https://main.dnpo8nagdov1i.amplifyapp.com/gestor';
-                  window.electronAPI.openExternal(webDashboardUrl);
-                }
+                // Redirigir al dashboard web para renovar
+                window.location.href = '/gestor';
                 
                 // NO establecer sesión - el usuario verá la pantalla de login
                 setSession(null)
@@ -377,8 +352,8 @@ export const AuthProvider = ({ children }) => {
         lastCheckedUserIdRef.current = user.id;
       }
 
-      // Detectar si estamos en Electron
-      const isElectronApp = typeof window !== 'undefined' && (window.location.protocol === 'file:' || !!window.electronAPI);
+      // App web/móvil - Electron ya no está soportado
+      const isElectronApp = false;
 
       try {
         // Usar maybeSingle() para evitar error 406 si el usuario aún no tiene registro
@@ -394,7 +369,7 @@ export const AuthProvider = ({ children }) => {
 
         if (userData && !userError) {
           // 🔑 CRÍTICO: Si es gestor en Electron con registro completo, verificar suscripción
-          const isGestor = userData.rol_id === ROLES.GESTOR;
+          const isGestor = userData.rol_id === 2;
           
           if (isGestor && isElectronApp && userData.registro_completo && !subscriptionCheckDoneRef.current) {
             subscriptionCheckDoneRef.current = true;
@@ -449,7 +424,7 @@ export const AuthProvider = ({ children }) => {
             logger.dev('✅ [loadUserData] Gestor con suscripción activa - permitiendo acceso');
           }
           
-          setUserRole(userData.rol_id || ROLES.GESTOR);
+          setUserRole(userData.rol_id || 2);
           setRegistroCompleto(userData.registro_completo === true);
           logger.dev('✅ Datos de usuario cargados:', userData.rol_id, '- registro_completo:', userData.registro_completo);
           
@@ -479,13 +454,13 @@ export const AuthProvider = ({ children }) => {
         } else {
           // Usuario OAuth sin registro en usuarios = Gestor, registro incompleto
           const metadataRol = user.user_metadata?.rol_id;
-          setUserRole(metadataRol || ROLES.GESTOR);
+          setUserRole(metadataRol || 2);
           setRegistroCompleto(false);
           logger.dev('ℹ️ Usuario sin registro en BD, asumiendo: Gestor, registro_completo: false');
         }
       } catch (e) {
         logger.warn('⚠️ Error cargando datos de usuario:', e);
-        setUserRole(ROLES.GESTOR);
+        setUserRole(2);
         setRegistroCompleto(false);
       }
     };
@@ -595,36 +570,27 @@ export const AuthProvider = ({ children }) => {
       logger.dev('🔍 Campos disponibles en userPayload:', Object.keys(userPayload));
       
       if (userId) {
-        // 🚫 BLOQUEO WEB: No iniciar servicios para usuarios básicos en web
-        const isWeb = isWebPlatform();
-        const isBasicUser = rolId === ROLES.BASICO;
+        logger.dev('✅ UserId encontrado, cargando canales...');
+        await loadUserActiveChannels(userId);
         
-        if (isWeb && isBasicUser) {
-          logger.dev('🚫 Usuario básico en web - NO se cargarán canales ni servicios tras login');
-          // NO cargar canales ni iniciar servicios - solo retornar el payload
-        } else {
-          logger.dev('✅ UserId encontrado, cargando canales...');
-          await loadUserActiveChannels(userId);
+        // 🚀 Iniciar servicio de presencia
+        try {
+          const { getAppVersion } = await import('@/lib/appVersion');
+          const appVersion = await getAppVersion();
+          await optimizedPresenceService.startPresence(userId, {
+            appVersion,
+            deviceInfo: {
+              userAgent: navigator.userAgent,
+              platform: navigator.platform
+            }
+          });
+          logger.dev('✅ Servicio de presencia iniciado');
           
-          // 🚀 Iniciar servicio de presencia optimizado
-          try {
-            const { getAppVersion } = await import('@/lib/appVersion');
-            const appVersion = await getAppVersion();
-            await optimizedPresenceService.startPresence(userId, {
-              appVersion,
-              deviceInfo: {
-                userAgent: navigator.userAgent,
-                platform: navigator.platform
-              }
-            });
-            logger.dev('✅ Servicio de presencia iniciado tras login legacy');
-            
-            // 💓 Iniciar heartbeat ligero para detección de desconexiones
-            lightweightHeartbeatService.start(userId);
-            logger.dev('💓 Heartbeat ligero iniciado - detectará desconexiones en 2-3 min');
-          } catch (e) {
-            logger.warn('⚠️ No se pudo iniciar servicio de presencia:', e);
-          }
+          // 💓 Iniciar heartbeat ligero
+          lightweightHeartbeatService.start(userId);
+          logger.dev('💓 Heartbeat ligero iniciado');
+        } catch (e) {
+          logger.warn('⚠️ No se pudo iniciar servicio de presencia:', e);
         }
       } else {
         logger.error('❌ No se pudo extraer userId del payload');

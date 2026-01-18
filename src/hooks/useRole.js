@@ -1,168 +1,62 @@
 import { useMemo } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 
-// Definición de roles y sus permisos
-export const ROLES = {
-  BASICO: 1,
-  GESTOR: 2,
-  ADMINISTRADOR: 3
-}
-
-// Configuración de permisos por rol
-const ROLE_PERMISSIONS = {
-  [ROLES.BASICO]: {
-    // Básico (rol_id = 1) - Acceso limitado
-    canAccessPlayer: true,
-    canAccessChannels: true,
-    canAccessContent: true,
-    canAccessHistory: true,
-    canAccessSupport: true,
-    // Restricciones específicas
-    canCreateImmediateAds: false,
-    canAccessSettingsWheel: false,
-    canAccessDrafts: false,
-    // Permisos generales
-    canManageUsers: false,
-    canManageSystem: false,
-    canViewAnalytics: false,
-    canDeleteContent: false,
-    // Admin panel
-    canManageAIAds: false,
-    // UI específica
-    showAdminPanel: false,
-    showAdvancedControls: false,
-    showSystemSettings: false
-  },
-  [ROLES.GESTOR]: {
-    // Gestor (rol_id = 2) - Dashboard propio para gestores
-    canAccessPlayer: true,
-    canAccessChannels: true,
-    canAccessContent: true,
-    canAccessHistory: true,
-    canAccessSupport: true,
-    canCreateImmediateAds: true, // ✅ Botón "Crear Anuncio" en el reproductor
-    canAccessSettingsWheel: true,
-    canAccessDrafts: true,
-    // Permisos de Gestor
-    canAccessGestorDashboard: true, // ✅ Acceso al dashboard de gestores
-    canManageSubscription: true, // ✅ Ver/gestionar su suscripción
-    canManageOwnAds: true, // ✅ Gestionar sus propios anuncios
-    // Permisos generales
-    canManageUsers: false, // ❌ No puede gestionar otros usuarios
-    canManageChannels: false, // ❌ No puede gestionar canales
-    canManageContent: false, // ❌ No puede gestionar contenido global
-    canManageSystem: false, // ❌ No puede gestionar sistema
-    canViewAnalytics: true, // ✅ Ver sus propias analíticas
-    canViewReports: true, // ✅ Ver sus propios reportes
-    canDeleteContent: false, // ❌ No puede eliminar contenido global
-    // Admin panel
-    canManageAIAds: false, // ❌ Sin acceso al panel de anuncios IA del admin
-    // UI específica
-    showAdminPanel: false, // Sin acceso al Dashboard admin
-    showAdminPanelInMenu: false, // No mostrar en menú de navegación
-    showGestorDashboard: true, // ✅ Mostrar dashboard de gestor
-    showAdvancedControls: true,
-    showSystemSettings: false
-  },
-  [ROLES.ADMINISTRADOR]: {
-    // Administrador (rol_id = 3) - Dashboard solo en menú de configuración
-    canAccessPlayer: true,
-    canAccessChannels: true,
-    canAccessContent: true,
-    canAccessHistory: true,
-    canAccessSupport: true,
-    canCreateImmediateAds: false, // ❌ No tiene acceso al botón del reproductor
-    canAccessSettingsWheel: true,
-    canAccessDrafts: true,
-    // Permisos generales
-    canManageUsers: true,
-    canManageChannels: true,
-    canManageContent: true,
-    canManageSystem: true,
-    canViewAnalytics: true,
-    canViewReports: true,
-    canDeleteContent: true,
-    // Admin panel
-    canManageAIAds: true, // ✅ Acceso al panel de anuncios IA en admin
-    // UI específica
-    showAdminPanel: true, // Necesario para acceder a la ruta
-    showAdminPanelInMenu: false, // Oculto del menú de navegación principal
-    showAdminPanelInSettings: true, // Mostrar en engranaje
-    showAdvancedControls: true,
-    showSystemSettings: true
-  }
-}
-
-// Configuración de UI por rol
-const ROLE_UI_CONFIG = {
-  [ROLES.BASICO]: {
-    theme: 'basico',
-    primaryColor: '#2563eb', // azul
-    showBadge: false,
-    badgeText: 'Básico',
-    badgeColor: 'bg-blue-500',
-    sidebarItems: ['player', 'channels', 'content', 'history', 'support'],
-    headerActions: ['profile']
-  },
-  [ROLES.GESTOR]: {
-    theme: 'gestor',
-    primaryColor: '#ea580c', // naranja
-    showBadge: false,
-    badgeText: 'Gestor',
-    badgeColor: 'bg-orange-500',
-    sidebarItems: ['player', 'channels', 'content', 'ads', 'history', 'support', 'admin'],
-    headerActions: ['notifications', 'settings', 'profile']
-  },
-  [ROLES.ADMINISTRADOR]: {
-    theme: 'administrador',
-    primaryColor: '#dc2626', // rojo
-    showBadge: false,
-    badgeText: 'Admin',
-    badgeColor: 'bg-red-500',
-    sidebarItems: ['player', 'channels', 'content', 'ads', 'history', 'support', 'admin'],
-    headerActions: ['notifications', 'settings', 'profile', 'system-status']
-  }
+/**
+ * Configuración de permisos del usuario
+ * Sistema simplificado: todos los usuarios autenticados tienen los mismos permisos
+ */
+const USER_PERMISSIONS = {
+  // Acceso a funcionalidades principales
+  canAccessPlayer: true,
+  canAccessChannels: true,
+  canAccessContent: true,
+  canAccessHistory: true,
+  
+  // Funcionalidades de gestión
+  canCreateImmediateAds: true,
+  canAccessSettingsWheel: true,
+  canAccessDrafts: true,
+  canAccessGestorDashboard: true,
+  canManageSubscription: true,
+  canManageOwnAds: true,
+  canViewAnalytics: true,
+  canViewReports: true,
+  
+  // UI
+  showGestorDashboard: true,
+  showAdvancedControls: true
 }
 
 /**
- * Hook personalizado para gestionar roles y permisos
+ * Configuración de UI del usuario
+ */
+const USER_UI_CONFIG = {
+  theme: 'default',
+  primaryColor: '#A2D9F7', // azul Ondeón
+  showBadge: false,
+  sidebarItems: ['player', 'channels', 'content', 'ads', 'history'],
+  headerActions: ['notifications', 'settings', 'profile']
+}
+
+/**
+ * Hook para gestionar permisos del usuario
+ * Sistema simplificado sin múltiples roles
  */
 export const useRole = () => {
-  const { user, isLegacyUser, userRole: contextUserRole } = useAuth()
+  const { user } = useAuth()
 
-  // Obtener el rol del usuario (preferir el del contexto)
-  const userRole = useMemo(() => {
-    if (!user) return null
-    
-    // Si el contexto ya tiene el rol, usarlo
-    if (contextUserRole !== null) {
-      return contextUserRole
-    }
-    
-    // Para usuarios legacy, usar rol del objeto user
-    if (isLegacyUser) {
-      return user.rol_id || ROLES.BASICO // Legacy sin rol = Básico
-    }
-    
-    // 🔑 CRÍTICO: Para usuarios de Supabase Auth, NO asumir BASICO
-    // Devolver null mientras el rol se está cargando desde la BD
-    // Esto evita el "flash" de /solo-desktop para usuarios Gestor
-    return null
-  }, [user, isLegacyUser, contextUserRole])
-
-  // Obtener permisos del rol actual
+  // Permisos del usuario (siempre los mismos si está autenticado)
   const permissions = useMemo(() => {
-    if (!userRole) return ROLE_PERMISSIONS[ROLES.BASICO]
-    return ROLE_PERMISSIONS[userRole] || ROLE_PERMISSIONS[ROLES.BASICO]
-  }, [userRole])
+    if (!user) return {}
+    return USER_PERMISSIONS
+  }, [user])
 
-  // Obtener configuración de UI del rol actual
+  // Configuración de UI
   const uiConfig = useMemo(() => {
-    if (!userRole) return ROLE_UI_CONFIG[ROLES.BASICO]
-    return ROLE_UI_CONFIG[userRole] || ROLE_UI_CONFIG[ROLES.BASICO]
-  }, [userRole])
+    return USER_UI_CONFIG
+  }, [])
 
-  // Funciones de utilidad para verificar permisos
+  // Verificar si tiene un permiso específico
   const hasPermission = (permission) => {
     return permissions[permission] === true
   }
@@ -175,35 +69,7 @@ export const useRole = () => {
     return permissionList.every(permission => hasPermission(permission))
   }
 
-  // Verificar si es un rol específico
-  const isBasico = userRole === ROLES.BASICO
-  const isGestor = userRole === ROLES.GESTOR
-  const isAdministrador = userRole === ROLES.ADMINISTRADOR
-
-  // Obtener nombre del rol
-  const getRoleName = () => {
-    switch (userRole) {
-      case ROLES.BASICO:
-        return 'Básico'
-      case ROLES.GESTOR:
-        return 'Gestor'
-      case ROLES.ADMINISTRADOR:
-        return 'Administrador'
-      default:
-        return 'Básico'
-    }
-  }
-
   return {
-    // Información del rol
-    userRole,
-    roleName: getRoleName(),
-    
-    // Verificaciones de rol
-    isBasico,
-    isGestor,
-    isAdministrador,
-    
     // Permisos
     permissions,
     hasPermission,
@@ -213,8 +79,11 @@ export const useRole = () => {
     // Configuración de UI
     uiConfig,
     
-    // Constantes
-    ROLES
+    // Para compatibilidad (se puede eliminar después de limpiar App.jsx)
+    userRole: user ? 2 : null,
+    roleName: 'Usuario',
+    isGestor: !!user,
+    ROLES: { GESTOR: 2 }
   }
 }
 
