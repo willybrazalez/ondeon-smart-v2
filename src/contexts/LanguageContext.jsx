@@ -39,6 +39,11 @@ export const LanguageProvider = ({ children }) => {
     { code: 'en', name: 'English', nativeName: 'English' },
     { code: 'fr', name: 'French', nativeName: 'Français' },
     { code: 'de', name: 'German', nativeName: 'Deutsch' },
+    { code: 'uk', name: 'Ukrainian', nativeName: 'Українська' },
+    { code: 'pl', name: 'Polish', nativeName: 'Polski' },
+    { code: 'pt', name: 'Portuguese', nativeName: 'Português' },
+    { code: 'it', name: 'Italian', nativeName: 'Italiano' },
+    { code: 'ru', name: 'Russian', nativeName: 'Русский' },
   ];
 
   return (
