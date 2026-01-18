@@ -1335,7 +1335,7 @@ function AppContent() {
             style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
           >
             <div className="flex items-center gap-5 px-3 py-2 rounded-2xl backdrop-blur-lg bg-black/10 dark:bg-white/10 shadow-[0_0_20px_rgba(0,0,0,0.15)] dark:shadow-[0_0_20px_rgba(255,255,255,0.1)]">
-              {getNavItemsForRole(hasPermission, t, userRole, ROLES, isWeb).map((item) => (
+              {getNavItemsForRole(hasPermission, t).map((item) => (
                 <Link
                   key={item.path}
                   to={item.path}
@@ -1352,7 +1352,7 @@ function AppContent() {
           {/* Escritorio: botones flotantes como antes */}
           <div className="hidden sm:flex fixed bottom-20 left-1/2 -translate-x-1/2 justify-center gap-12 z-50">
             <AnimatePresence>
-              {getNavItemsForRole(hasPermission, t, userRole, ROLES, isWeb).map((item, index) => (
+              {getNavItemsForRole(hasPermission, t).map((item, index) => (
                 <motion.div 
                   key={item.path} 
                   className="group relative animate-float"
