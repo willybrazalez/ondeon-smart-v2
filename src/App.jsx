@@ -1186,16 +1186,12 @@ function AppContent() {
                   </Link>
                 </PermissionGated>
                 
-                {/* Engranaje de configuración eliminado para gestores - solo lo tienen admins (rainbow) */}
-                
-                {/* Profile para gestores (rol_id = 2) - Acceso a /gestor desde desktop */}
-                {userRole === ROLES.GESTOR && (
-                  <Link to="/gestor" title={t('nav.myAccount', 'Mi cuenta')}>
-                    <Button variant="ghost" size="icon" className="text-foreground/60 hover:text-[#A2D9F7]">
-                      <User size={20} />
-                    </Button>
-                  </Link>
-                )}
+                {/* Acceso a Mi Cuenta / Dashboard */}
+                <Link to="/gestor" title={t('nav.myAccount', 'Mi cuenta')}>
+                  <Button variant="ghost" size="icon" className="text-foreground/60 hover:text-[#A2D9F7]">
+                    <User size={20} />
+                  </Button>
+                </Link>
                 
                 <Button variant="ghost" size="icon" className="text-foreground/60 hover:text-[#A2D9F7]" onClick={handleLogout} title={t('nav.logout')}>
                   <LogOut size={20} />
