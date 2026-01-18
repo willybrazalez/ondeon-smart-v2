@@ -55,6 +55,9 @@ export default function RegisterPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { signUp, signInWithGoogle, signInWithApple } = useAuth();
+  
+  // Electron ya no está soportado - siempre false
+  const isElectron = false;
 
   // Verificar si volvió del checkout cancelado o viene de login con registro incompleto
   useEffect(() => {

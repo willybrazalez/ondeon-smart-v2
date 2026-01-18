@@ -16,7 +16,8 @@
     "cap:android": "npm run build && npx cap sync android && npx cap open android",
     "cap:ios": "npm run build && npx cap sync ios && npx cap open ios",
     "cap:run:android": "npm run build && npx cap run android",
-    "cap:run:ios": "npm run build && npx cap run ios"
+    "cap:run:ios": "npm run build && npx cap run ios",
+    "cap:live": "npx cap run android --livereload --external"
   },
   "dependencies": {
     "@capacitor/android": "^8.0.1",

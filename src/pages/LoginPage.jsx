@@ -27,6 +27,9 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const navigate = useNavigate();
   const { signIn, signInWithUsuarios, signInWithGoogle, signInWithApple, subscriptionRequired, clearSubscriptionRequired } = useAuth();
+  
+  // Electron ya no está soportado - siempre false
+  const isElectron = false;
 
   // 🔧 NUEVO: Estado para controlar si ya se cargaron las credenciales
   const [credentialsLoaded, setCredentialsLoaded] = useState(false);
