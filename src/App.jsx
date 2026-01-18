@@ -1241,166 +1241,33 @@ function AppContent() {
           <main className={`${(isAuthRoute || !user || isAdminRoute || isWebDashboardRoute) ? 'w-full mx-0 px-0 py-0 pb-0 max-w-none' : 'w-full max-w-5xl mx-auto px-16 sm:px-20 md:px-24 py-6 pb-32'}`}>
             <PlayerProvider value={{ isPlaying: djState?.isPlaying || false, currentChannel: currentChannel || djState?.currentChannel, currentSong: djState?.currentSong }}>
             <Routes>
-              
               {user ? (
                 <>
-                  {/* 🌐 RUTAS WEB: Lógica diferente según el rol */}
-                  {isWeb ? (
-                    <>
-                      {/* 🔑 Rutas de autenticación - Redirigir si ya está logueado */}
-                      <Route path="/login" element={
-                        <Navigate to={
-                          userRole === ROLES.BASICO ? '/solo-desktop' :
-                          userRole === ROLES.GESTOR ? '/gestor' :
-                          userRole === ROLES.ADMINISTRADOR ? '/admin/dashboard' : '/gestor'
-                        } replace />
-                      } />
-                      <Route path="/registro" element={<RegisterPage />} />
-                      <Route path="/descarga" element={<DownloadPage />} />
-                      {/* ✅ ELIMINADO: OAuth ahora usa servidor HTTP local en Electron */}
-                      
-                      {/* rol_id = 1 (Básico): Solo página de descarga desktop */}
-                      {userRole === ROLES.BASICO && (
-                        <>
-                          <Route path="/solo-desktop" element={<DesktopOnlyPage />} />
-                          <Route path="*" element={<Navigate to="/solo-desktop" replace />} />
-                        </>
-                      )}
-                      
-                      {/* rol_id = 2 (Gestor): Accede a su dashboard */}
-                      {/* 🔑 CRÍTICO: Solo mostrar rutas si registroCompleto está determinado */}
-                      {userRole === ROLES.GESTOR && registroCompleto !== null && (
-                        <>
-                          <Route path="/gestor" element={<GestorDashboard />} />
-                          <Route path="/soporte" element={<SupportPage />} />
-                          {/* Redirigir /solo-desktop a /gestor para gestores */}
-                          <Route path="/solo-desktop" element={<Navigate to="/gestor" replace />} />
-                          <Route path="/" element={<Navigate to="/gestor" replace />} />
-                          <Route path="*" element={<Navigate to="/gestor" replace />} />
-                        </>
-                      )}
-                      
-                      {/* rol_id = 3 (Administrador): Accede al panel de administración */}
-                      {userRole === ROLES.ADMINISTRADOR && (
-                        <>
-                          <Route path="/admin/dashboard" element={<AdminDashboard />} />
-                          <Route path="/admin/mapa" element={<MapPage />} />
-                          <Route path="/admin/anuncios-rapidos" element={<QuickAdsPage />} />
-                          <Route path="/admin/grupos" element={<Navigate to="/admin/empresas-usuarios-grupos" replace />} />
-                          <Route path="/admin/contenidos" element={<ContentManagementPage />} />
-                          <Route path="/admin/programaciones" element={<ProgramacionesPage />} />
-                          <Route path="/admin/canales" element={<ChannelsManagementPage />} />
-                          <Route path="/admin/grupos-management" element={<GroupsManagementPage />} />
-                          <Route path="/admin/usuarios" element={<UsersManagementPage />} />
-                          <Route path="/admin/empresas-usuarios-grupos" element={<EmpresasUsuariosGruposPage />} />
-                          <Route path="/admin/usuarios-grupos" element={<UsersGroupsManagementPage />} />
-                          <Route path="/admin/empresas" element={<CompaniesManagementPage />} />
-                          <Route path="/soporte" element={<SupportPage />} />
-                          {/* Redirigir /solo-desktop a /admin para administradores */}
-                          <Route path="/solo-desktop" element={<Navigate to="/admin/dashboard" replace />} />
-                          <Route path="/" element={<Navigate to="/admin/dashboard" replace />} />
-                          <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
-                        </>
-                      )}
-                      
-                      {/* Fallback mientras el rol o registroCompleto están cargando */}
-                      {(userRole === null || userRole === undefined || (userRole === ROLES.GESTOR && registroCompleto === null)) && (
-                        <>
-                          {/* Mostrar página de carga mientras se determina el estado */}
-                          <Route path="*" element={
-                            <div className="min-h-screen flex items-center justify-center bg-[#0a0e14]">
-                              <div className="text-center">
-                                <div className="w-8 h-8 border-2 border-[#A2D9F7]/30 border-t-[#A2D9F7] rounded-full animate-spin mx-auto mb-4"></div>
-                                <p className="text-white/40 text-sm">Cargando...</p>
-                              </div>
-                            </div>
-                          } />
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {/* 🖥️ RUTAS DESKTOP (Electron): Todas las funcionalidades disponibles */}
-                      <Route path="/" element={<PlayerPage />} />
-                      <Route path="/canales" element={<ChannelsPage setCurrentChannel={setCurrentChannel} initializeDjChannel={initializeDjChannel} currentChannel={currentChannel} isPlaying={djState?.isPlaying} togglePlayPause={togglePlayPause} />} />
-                      <Route path="/programacion" element={<ProgrammingPage />} />
-                      <Route path="/anuncio-nuevo" element={<NewAdPage />} />
-                      <Route path="/historial-anuncios" element={<AdHistoryPage />} />
-                      <Route path="/admin" element={<AdminPage />} />
-                      <Route path="/soporte" element={<SupportPage />} />
-                      
-                      {/* Rutas de Admin - Protegidas por permisos */}
-                      <Route path="/admin/dashboard" element={
-                        <PermissionGated permissions={['showAdminPanel']}>
-                          <AdminDashboard />
-                        </PermissionGated>
-                      } />
-                      <Route path="/admin/mapa" element={
-                        <PermissionGated permissions={['showAdminPanel']}>
-                          <MapPage />
-                        </PermissionGated>
-                      } />
-                      <Route path="/admin/anuncios-rapidos" element={
-                        <PermissionGated permissions={['canManageAIAds']}>
-                          <QuickAdsPage />
-                        </PermissionGated>
-                      } />
-                      <Route path="/admin/grupos" element={<Navigate to="/admin/empresas-usuarios-grupos" replace />} />
-                      <Route path="/admin/contenidos" element={
-                        <PermissionGated permissions={['canManageUsers']}>
-                          <ContentManagementPage />
-                        </PermissionGated>
-                      } />
-                      <Route path="/admin/programaciones" element={
-                        <PermissionGated permissions={['canManageUsers']}>
-                          <ProgramacionesPage />
-                        </PermissionGated>
-                      } />
-                      <Route path="/admin/canales" element={
-                        <PermissionGated permissions={['canManageUsers']}>
-                          <ChannelsManagementPage />
-                        </PermissionGated>
-                      } />
-                      <Route path="/admin/grupos-management" element={
-                        <PermissionGated permissions={['canManageUsers']}>
-                          <GroupsManagementPage />
-                        </PermissionGated>
-                      } />
-                      <Route path="/admin/usuarios" element={
-                        <PermissionGated permissions={['canManageUsers']}>
-                          <UsersManagementPage />
-                        </PermissionGated>
-                      } />
-                      <Route path="/admin/empresas-usuarios-grupos" element={
-                        <PermissionGated permissions={['canManageUsers']}>
-                          <EmpresasUsuariosGruposPage />
-                        </PermissionGated>
-                      } />
-                      <Route path="/admin/usuarios-grupos" element={
-                        <PermissionGated permissions={['canManageUsers']}>
-                          <UsersGroupsManagementPage />
-                        </PermissionGated>
-                      } />
-                      <Route path="/admin/empresas" element={
-                        <PermissionGated permissions={['canManageUsers']}>
-                          <CompaniesManagementPage />
-                        </PermissionGated>
-                      } />
-                      
-                      {/* 🔑 Redirigir usuarios logueados fuera de /login */}
-                      <Route path="/login" element={<Navigate to="/" replace />} />
-                      <Route path="/registro" element={<RegisterPage />} />
-                      <Route path="/descarga" element={<DownloadPage />} />
-                      <Route path="/gestor" element={<GestorDashboard />} />
-                      <Route path="/solo-desktop" element={<DesktopOnlyPage />} />
-                    </>
-                  )}
+                  {/* Rutas principales para usuarios autenticados */}
+                  <Route path="/" element={<PlayerPage />} />
+                  <Route path="/canales" element={
+                    <ChannelsPage 
+                      setCurrentChannel={setCurrentChannel} 
+                      initializeDjChannel={initializeDjChannel} 
+                      currentChannel={currentChannel} 
+                      isPlaying={djState?.isPlaying} 
+                      togglePlayPause={togglePlayPause} 
+                    />
+                  } />
+                  <Route path="/anuncio-nuevo" element={<NewAdPage />} />
+                  <Route path="/historial-anuncios" element={<AdHistoryPage />} />
+                  <Route path="/gestor" element={<GestorDashboard />} />
+                  <Route path="/registro" element={<RegisterPage />} />
+                  
+                  {/* Redirigir /login a home si ya está autenticado */}
+                  <Route path="/login" element={<Navigate to="/" replace />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
                 </>
               ) : (
                 <>
+                  {/* Rutas para usuarios no autenticados */}
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/registro" element={<RegisterPage />} />
-                  <Route path="/descarga" element={<DownloadPage />} />
                   <Route path="*" element={<LoginPage />} />
                 </>
               )}
@@ -1569,18 +1436,14 @@ function AppContent() {
 
 // Componente principal con providers
 const App = () => {
-  // ✅ Detectar entorno de Electron (file://) y usar HashRouter para rutas
-  const RouterImpl = (typeof window !== 'undefined' && window.location && window.location.protocol === 'file:')
-    ? HashRouter
-    : BrowserRouter;
   return (
     <ThemeProvider>
       <LanguageProvider>
         <AuthProvider>
-          <RouterImpl>
+          <BrowserRouter>
             <AppContent />
             <Toaster />
-          </RouterImpl>
+          </BrowserRouter>
         </AuthProvider>
       </LanguageProvider>
     </ThemeProvider>
