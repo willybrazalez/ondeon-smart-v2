@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { BrowserRouter, HashRouter, Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { 
   HomeIcon, 
@@ -25,25 +25,9 @@ import {
 import { Toaster } from './components/ui/toaster';
 import PlayerPage from '@/pages/PlayerPage';
 import ChannelsPage from '@/pages/ChannelsPage';
-import ProgrammingPage from '@/pages/ProgrammingPage';
 import NewAdPage from '@/pages/NewAdPage';
 import AdHistoryPage from '@/pages/AdHistoryPage';
-import SupportPage from '@/pages/SupportPage';
-import AdminPage from '@/pages/AdminPage';
-import AdminDashboard from '@/pages/admin/AdminDashboard';
-import MapPage from '@/pages/admin/MapPage';
-import QuickAdsPage from '@/pages/admin/QuickAdsPage';
-import ContentManagementPage from '@/pages/admin/ContentManagementPage';
-import SchedulingManagementPage from '@/pages/admin/SchedulingManagementPage';
-import ProgramacionesPage from '@/pages/admin/ProgramacionesPage';
-import ChannelsManagementPage from '@/pages/admin/ChannelsManagementPage';
-import GroupsManagementPage from '@/pages/admin/GroupsManagementPage';
-import UsersManagementPage from '@/pages/admin/UsersManagementPage';
-import EmpresasUsuariosGruposPage from '@/pages/admin/EmpresasUsuariosGruposPage';
-import CompaniesManagementPage from '@/pages/admin/CompaniesManagementPage';
-import UsersGroupsManagementPage from '@/pages/admin/UsersGroupsManagementPage';
 import RegisterPage from './pages/RegisterPage';
-import DownloadPage from './pages/DownloadPage';
 import GestorDashboard from './pages/gestor/GestorDashboard';
 // ✅ ELIMINADO: OAuth ahora usa servidor HTTP local en Electron
 // import OAuthCallbackPage from './pages/OAuthCallbackPage';
@@ -56,7 +40,7 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import ThemeToggle from '@/components/ThemeToggle';
 import { useTheme } from '@/contexts/ThemeContext';
-import OnlyDesktop from './components/OnlyDesktop';
+// Componentes de desktop eliminados
 import { useRole } from '@/hooks/useRole';
 import { PermissionGated } from '@/components/RoleProtectedRoute';
 import ReactivePlayButton from '@/components/player/ReactivePlayButton';
@@ -73,49 +57,20 @@ import { useSessionMonitor } from '@/hooks/useSessionMonitor';
 import SessionClosedModal from '@/components/SessionClosedModal';
 import optimizedPresenceService from '@/services/optimizedPresenceService';
 import { PlayerProvider } from '@/contexts/PlayerContext';
-import DesktopOnlyPage from './pages/DesktopOnlyPage';
+// DesktopOnlyPage eliminado
 
-// 🌐 Helper para detectar si estamos en versión web (no Electron/Desktop)
-// - En Electron: window.electronAPI existe y/o protocol es 'file:'
-// - En Web: ninguna de las anteriores
-// NOTA: Es una función para evaluarse en tiempo de ejecución, no al cargar el módulo
-export const getIsWebPlatform = () => {
-  if (typeof window === 'undefined') return false;
-  return window.location.protocol !== 'file:' && !window.electronAPI;
-};
+// Siempre es plataforma web/móvil (Electron eliminado)
+export const getIsWebPlatform = () => true;
+export const isWebPlatform = true;
 
-// Constante para compatibilidad (se evalúa una vez al cargar)
-export const isWebPlatform = typeof window !== 'undefined' 
-  && window.location.protocol !== 'file:' 
-  && !window.electronAPI;
-
-// Función para obtener elementos de navegación basados en rol
-// 🔧 MODIFICADO: Gestores en desktop ven la misma UI que básicos (sin "Crear Anuncio")
-const getNavItemsForRole = (hasPermission, t, userRole, ROLES, isWeb = false) => {
-  const allItems = [
-    // Acceso básico (rol_id = 1)
+// Función para obtener elementos de navegación
+const getNavItemsForRole = (hasPermission, t) => {
+  return [
     { path: '/', label: t('nav.player'), icon: HomeIcon, permission: 'canAccessPlayer' },
     { path: '/canales', label: t('nav.channels'), icon: Radio, permission: 'canAccessChannels' },
-    { path: '/programacion', label: t('nav.content'), icon: BookOpen, permission: 'canAccessContent' },
     { path: '/historial-anuncios', label: t('nav.history'), icon: HistoryIcon, permission: 'canAccessHistory' },
-    { path: '/soporte', label: t('nav.support'), icon: MessageSquare, permission: 'canAccessSupport' },
-    
-    // Solo para administradores (rol_id = 3) - gestores en desktop no ven esto
-    { path: '/anuncio-nuevo', label: t('nav.createAd'), icon: PlusCircle, permission: 'canCreateImmediateAds', adminOnly: true }
-    // Dashboard eliminado del menú flotante para todos los roles
-  ];
-
-  // Filtrar elementos según permisos
-  // 🔧 NUEVO: Gestores en desktop (no web) ven la misma UI que básicos
-  const isGestorDesktop = userRole === ROLES?.GESTOR && !isWeb;
-  
-  return allItems.filter(item => {
-    // Si es gestor en desktop y el item es adminOnly, no mostrarlo
-    if (isGestorDesktop && item.adminOnly) {
-      return false;
-    }
-    return !item.permission || hasPermission(item.permission);
-  });
+    { path: '/anuncio-nuevo', label: t('nav.createAd'), icon: PlusCircle, permission: 'canCreateImmediateAds' },
+  ].filter(item => !item.permission || hasPermission(item.permission));
 };
 
 // Componente PlayerControls mejorado con AutoDJ
