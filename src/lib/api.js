@@ -41,9 +41,10 @@ const measureQuery = async (queryName, queryFn) => {
   }
 };
 
-// Edge Functions
-const EDGE_LOGIN_URL = 'https://nazlyvhndymalevkfpnl.supabase.co/functions/v1/login'
-const EDGE_CHANGE_PASSWORD_URL = 'https://nazlyvhndymalevkfpnl.supabase.co/functions/v1/change-password'
+// Edge Functions - usan la URL del .env
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const EDGE_LOGIN_URL = `${SUPABASE_URL}/functions/v1/login`
+const EDGE_CHANGE_PASSWORD_URL = `${SUPABASE_URL}/functions/v1/change-password`
 
 // Funciones para gestión de usuarios con Supabase
 export const userApi = {
