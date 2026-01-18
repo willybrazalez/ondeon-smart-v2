@@ -211,9 +211,6 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LoginPage.jsx:handleSubmit:start',message:'Login form submitted',data:{email:form.email,hasPassword:!!form.password,isElectron,rememberMe},timestamp:Date.now(),sessionId:'debug-session',runId:'production-debug-v1',hypothesisId:'H3'})}).catch(()=>{});
-    // #endregion
     
     try {
       // Primero intentar login legacy con tabla usuarios
@@ -221,9 +218,6 @@ export default function LoginPage() {
         const userData = await signInWithUsuarios(form.email, form.password);
         logger.dev('✅ Login legacy exitoso');
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LoginPage.jsx:handleSubmit:legacySuccess',message:'Legacy login successful',data:{userId:userData?.id,rol_id:userData?.rol_id,hasUsername:!!userData?.username},timestamp:Date.now(),sessionId:'debug-session',runId:'production-debug-v1',hypothesisId:'H3'})}).catch(()=>{});
-        // #endregion
         
         // Guardar credenciales si el usuario lo solicita
         if (rememberMe) {
@@ -363,9 +357,6 @@ export default function LoginPage() {
     } catch (err) {
       logger.error('Error en login:', err);
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LoginPage.jsx:handleSubmit:error',message:'Login error occurred',data:{errorMessage:err?.message,errorCode:err?.code,errorStack:err?.stack?.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'production-debug-v1',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
       
       if (err.message.includes('Invalid login credentials')) {
         setError(t('auth.invalidCredentials'));
@@ -520,9 +511,6 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LoginPage.jsx:handleGoogleLogin:start',message:'Google OAuth started',data:{isElectron,hasStartOAuth:!!window.electronAPI?.startOAuth},timestamp:Date.now(),sessionId:'debug-session',runId:'production-debug-v1',hypothesisId:'H3'})}).catch(()=>{});
-    // #endregion
     
     try {
       if (isElectron && window.electronAPI?.startOAuth) {

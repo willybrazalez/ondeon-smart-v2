@@ -4,9 +4,6 @@ import logger from './logger.js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-// #region agent log
-fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase.js:init',message:'Supabase client initialization',data:{hasUrl:!!supabaseUrl,hasKey:!!supabaseAnonKey,urlValue:supabaseUrl?.substring(0,50),isDev:import.meta.env.DEV},timestamp:Date.now(),sessionId:'debug-session',runId:'production-debug-v1',hypothesisId:'H2'})}).catch(()=>{});
-// #endregion
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {

@@ -110,9 +110,6 @@ export default function RegisterPage() {
             .eq('auth_user_id', user.id)
             .single();
           
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'RegisterPage.jsx:checkSessionOnLoad',message:'userData result',data:{userError:userError?.message,registro_completo:userData?.registro_completo,rol_id:userData?.rol_id,userId:userData?.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-          // #endregion
           
           if (!userError && userData?.registro_completo) {
             logger.dev('✅ Usuario con registro completo detectado, verificando suscripción...');
@@ -127,9 +124,6 @@ export default function RegisterPage() {
               .limit(1)
               .maybeSingle();
             
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'RegisterPage.jsx:checkSessionOnLoad:subscription',message:'subscription check result',data:{subError:subError?.message,subscriptionData,hasActiveSub:!!subscriptionData,isElectron},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H5'})}).catch(()=>{});
-            // #endregion
             
             // Si tiene suscripción activa/trial
             if (subscriptionData) {
@@ -280,9 +274,6 @@ export default function RegisterPage() {
             .eq('auth_user_id', user.id)
             .single();
           
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'RegisterPage.jsx:OAuthCallback',message:'OAuth userData result',data:{userError:userError?.message,registro_completo:userData?.registro_completo,rol_id:userData?.rol_id,userId:userData?.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-          // #endregion
           
           if (!userError && userData?.registro_completo) {
             logger.dev('✅ [OAuth Register] Usuario con registro completo detectado, verificando suscripción...');
@@ -297,9 +288,6 @@ export default function RegisterPage() {
               .limit(1)
               .maybeSingle();
             
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'RegisterPage.jsx:OAuthCallback:subscription',message:'OAuth subscription check',data:{subError:subError?.message,subscriptionData,hasActiveSub:!!subscriptionData},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2,H5'})}).catch(()=>{});
-            // #endregion
             
             // Si tiene suscripción activa/trial
             if (subscriptionData) {
@@ -312,9 +300,6 @@ export default function RegisterPage() {
             // Sin suscripción activa - redirigir al dashboard web para renovar
             logger.dev('⚠️ [OAuth Register] Sin suscripción activa, abriendo dashboard web');
             
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'RegisterPage.jsx:OAuthCallback:redirect',message:'OAuth redirecting to dashboard (no sub)',data:{isElectron,willOpenExternal:!!window.electronAPI?.openExternal},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-            // #endregion
             
             if (isElectron && window.electronAPI?.openExternal) {
               const webDashboardUrl = 'https://main.dnpo8nagdov1i.amplifyapp.com/gestor';

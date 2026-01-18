@@ -167,9 +167,6 @@ export const AuthProvider = ({ children }) => {
       // App web/móvil - Electron ya no está soportado
       const isElectronApp = false;
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:getInitialSession',message:'Supabase auth check',data:{hasAuthUser:!!authUser,authError:authError?.message,email:authUser?.email,isElectronApp},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix-v3',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
       
       // Si el token es inválido o el usuario no existe, limpiar sesión
       if (authError || !authUser) {
@@ -201,9 +198,6 @@ export const AuthProvider = ({ children }) => {
             .eq('auth_user_id', authUser.id)
             .maybeSingle()
           
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:getInitialSession:userData',message:'User data loaded',data:{hasUserData:!!userData,userError:userError?.message,rol_id:userData?.rol_id,registro_completo:userData?.registro_completo,isElectronApp},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix-v3',hypothesisId:'H3'})}).catch(()=>{});
-          // #endregion
           
           if (userData && !userError) {
             // 🔑 CRÍTICO: Si es gestor en Electron, verificar suscripción ANTES de establecer sesión
@@ -222,17 +216,11 @@ export const AuthProvider = ({ children }) => {
                 .limit(1)
                 .maybeSingle();
               
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:getInitialSession:subscription',message:'Subscription check for gestor in Electron',data:{hasActiveSub:!!subscriptionData,subError:subError?.message,estado:subscriptionData?.estado},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix-v3',hypothesisId:'H3'})}).catch(()=>{});
-              // #endregion
               
               // Si NO tiene suscripción activa, NO establecer sesión
               if (!subscriptionData) {
                 logger.dev('⚠️ Gestor sin suscripción activa en Electron - NO permitir acceso');
                 
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:getInitialSession:blocked',message:'BLOCKING gestor - no subscription',data:{reason:'no_active_subscription'},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix-v3',hypothesisId:'H3'})}).catch(()=>{});
-                // #endregion
                 
                 // Cerrar sesión de Supabase
                 await supabase.auth.signOut();
@@ -363,9 +351,6 @@ export const AuthProvider = ({ children }) => {
           .eq('auth_user_id', user.id)
           .maybeSingle();
 
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:loadUserData',message:'User data loaded via onAuthStateChange path',data:{hasUserData:!!userData,rol_id:userData?.rol_id,registro_completo:userData?.registro_completo,isElectronApp,subscriptionCheckDone:subscriptionCheckDoneRef.current,lastCheckedUserId:lastCheckedUserIdRef.current,currentUserId:user.id},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix-v5',hypothesisId:'H3'})}).catch(()=>{});
-        // #endregion
 
         if (userData && !userError) {
           // 🔑 CRÍTICO: Si es gestor en Electron con registro completo, verificar suscripción
@@ -391,17 +376,11 @@ export const AuthProvider = ({ children }) => {
               logger.dev('💰 Plan del usuario:', subscriptionData.plan_nombre);
             }
             
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:loadUserData:subscription',message:'Subscription check in loadUserData',data:{hasActiveSub:!!subscriptionData,subError:subError?.message,estado:subscriptionData?.estado},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix-v5',hypothesisId:'H3'})}).catch(()=>{});
-            // #endregion
             
             // Si NO tiene suscripción activa, cerrar sesión y abrir dashboard web
             if (!subscriptionData) {
               logger.dev('⚠️ [loadUserData] Gestor sin suscripción activa en Electron - cerrando sesión');
               
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:loadUserData:blocked',message:'BLOCKING gestor - closing session',data:{reason:'no_active_subscription'},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix-v5',hypothesisId:'H3'})}).catch(()=>{});
-              // #endregion
               
               // 🔔 Marcar que se requiere suscripción para mostrar mensaje
               setSubscriptionRequired(true);

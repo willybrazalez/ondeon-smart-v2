@@ -1284,9 +1284,6 @@ export const authApi = {
     // Obtener la anon key de Supabase
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.js:signInLegacyEdge:start',message:'Legacy edge login starting',data:{username,hasAnonKey:!!supabaseAnonKey,edgeUrl:EDGE_LOGIN_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'production-debug-v1',hypothesisId:'H3'})}).catch(()=>{});
-    // #endregion
     
     const response = await fetch(EDGE_LOGIN_URL, {
       method: 'POST',
@@ -1298,9 +1295,6 @@ export const authApi = {
       body: JSON.stringify({ username, password }),
     });
 
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/387fb109-3d75-4d24-b454-7d123dcb5eaa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.js:signInLegacyEdge:response',message:'Edge login response received',data:{status:response.status,ok:response.ok},timestamp:Date.now(),sessionId:'debug-session',runId:'production-debug-v1',hypothesisId:'H3'})}).catch(()=>{});
-    // #endregion
 
     if (!response.ok) {
       // Intentar obtener el mensaje de error del response
