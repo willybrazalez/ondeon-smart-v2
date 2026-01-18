@@ -19,23 +19,15 @@ export default defineConfig({
       '@components': path.resolve(__dirname, './src/components'),
       '@pages': path.resolve(__dirname, './src/pages'),
       '@lib': path.resolve(__dirname, './src/lib'),
-      'three': path.resolve(__dirname, 'node_modules/three'),
     }
   },
-  optimizeDeps: {
-    include: ['three', '@react-three/fiber', '@react-three/drei'],
-  },
-  base: process.env.IS_ELECTRON ? './' : '/',
+  base: '/',
   build: {
     outDir: 'dist',
-    commonjsOptions: {
-      include: [/three/, /node_modules/],
-    },
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
-          three: ['three', '@react-three/fiber', '@react-three/drei'],
           ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select']
         }
       }
