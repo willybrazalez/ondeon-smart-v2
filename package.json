@@ -17,7 +17,9 @@
     "cap:ios": "npm run build && npx cap sync ios && npx cap open ios",
     "cap:run:android": "npm run build && npx cap run android",
     "cap:run:ios": "npm run build && npx cap run ios",
-    "cap:live": "npx cap run android --livereload --external"
+    "mobile:android": "npx cap run android -l --external --host=0.0.0.0",
+    "mobile:ios": "npx cap run ios -l --external --host=0.0.0.0",
+    "mobile:both": "echo 'Usa npm run dev y abre Chrome DevTools (F12) en modo dispositivo'"
   },
   "dependencies": {
     "@capacitor/android": "^8.0.1",
