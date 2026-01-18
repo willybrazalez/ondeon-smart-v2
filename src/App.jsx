@@ -373,7 +373,6 @@ function AppContent() {
     console.log('🌐 [Platform Debug]', {
       isWeb,
       protocol: window.location.protocol,
-      hasElectronAPI: !!window.electronAPI,
       pathname: location.pathname,
       currentPath // ruta normalizada
     });

@@ -164,14 +164,9 @@ export const AuthProvider = ({ children }) => {
       // getSession() solo lee el cache local, getUser() valida el token con Supabase
       const { data: { user: authUser }, error: authError } = await supabase.auth.getUser()
       
-      // App web/móvil - Electron ya no está soportado
-      const isElectronApp = false;
-      
-      
       // Si el token es inválido o el usuario no existe, limpiar sesión
       if (authError || !authUser) {
         logger.dev('ℹ️ No hay usuario válido en Supabase Auth');
-        // Limpiar cualquier sesión residual
         await supabase.auth.signOut()
         setSession(null)
         setUser(null)
@@ -190,64 +185,17 @@ export const AuthProvider = ({ children }) => {
       if (authUser?.id) {
         logger.dev('ℹ️ Sesión Supabase encontrada - verificando usuario...');
         try {
-          // Buscar usuario en public.usuarios por auth_user_id
-          // Usar maybeSingle() para evitar error 406 si el usuario aún no tiene registro
           const { data: userData, error: userError } = await supabase
             .from('usuarios')
             .select('id, rol_id, registro_completo, email')
             .eq('auth_user_id', authUser.id)
             .maybeSingle()
           
-          
           if (userData && !userError) {
-            // 🔑 CRÍTICO: Si es gestor en Electron, verificar suscripción ANTES de establecer sesión
-            const isGestor = userData.rol_id === 2;
-            
-            if (isGestor && isElectronApp && userData.registro_completo) {
-              logger.dev('🔍 Gestor en Electron con registro completo - verificando suscripción...');
-              
-              // Verificar suscripción activa o en trial
-              const { data: subscriptionData, error: subError } = await supabase
-                .from('suscripciones')
-                .select('estado')
-                .eq('usuario_id', userData.id)
-                .in('estado', ['active', 'trialing'])
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-              
-              
-              // Si NO tiene suscripción activa, NO establecer sesión
-              if (!subscriptionData) {
-                logger.dev('⚠️ Gestor sin suscripción activa en Electron - NO permitir acceso');
-                
-                
-                // Cerrar sesión de Supabase
-                await supabase.auth.signOut();
-                
-                // Redirigir al dashboard web para renovar
-                window.location.href = '/gestor';
-                
-                // NO establecer sesión - el usuario verá la pantalla de login
-                setSession(null)
-                setUser(null)
-                setIsLegacyUser(false)
-                setUserRole(null)
-                setUserPlan(null)
-                setRegistroCompleto(null)
-                setLoading(false)
-                return;
-              }
-              
-              logger.dev('✅ Gestor con suscripción activa - permitiendo acceso al reproductor');
-            }
-            
-            // Usuario válido encontrado (y tiene suscripción si es gestor en Electron)
             setSession(session)
             setUser(session?.user ?? null)
             setIsLegacyUser(false)
             setUserRole(userData.rol_id || 2)
-            // 🔑 CRÍTICO: Establecer estado de registro completo
             setRegistroCompleto(userData.registro_completo === true)
             logger.dev('✅ Rol de usuario Supabase Auth:', userData.rol_id, '- registro_completo:', userData.registro_completo)
           } else {
@@ -340,70 +288,20 @@ export const AuthProvider = ({ children }) => {
         lastCheckedUserIdRef.current = user.id;
       }
 
-      // App web/móvil - Electron ya no está soportado
-      const isElectronApp = false;
-
       try {
-        // Usar maybeSingle() para evitar error 406 si el usuario aún no tiene registro
         const { data: userData, error: userError } = await supabase
           .from('usuarios')
           .select('id, rol_id, registro_completo')
           .eq('auth_user_id', user.id)
           .maybeSingle();
 
-
         if (userData && !userError) {
-          // 🔑 CRÍTICO: Si es gestor en Electron con registro completo, verificar suscripción
-          const isGestor = userData.rol_id === 2;
-          
-          if (isGestor && isElectronApp && userData.registro_completo && !subscriptionCheckDoneRef.current) {
-            subscriptionCheckDoneRef.current = true;
-            logger.dev('🔍 [loadUserData] Gestor en Electron - verificando suscripción...');
-            
-            // Verificar suscripción activa o en trial y obtener el plan
-            const { data: subscriptionData, error: subError } = await supabase
-              .from('suscripciones')
-              .select('estado, plan_nombre')
-              .eq('usuario_id', userData.id)
-              .in('estado', ['active', 'trialing'])
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            
-            // 💰 Guardar el plan del usuario si existe
-            if (subscriptionData?.plan_nombre) {
-              setUserPlan(subscriptionData.plan_nombre);
-              logger.dev('💰 Plan del usuario:', subscriptionData.plan_nombre);
-            }
-            
-            
-            // Si NO tiene suscripción activa, marcar y redirigir
-            if (!subscriptionData) {
-              logger.dev('⚠️ [loadUserData] Gestor sin suscripción activa');
-              
-              // 🔔 Marcar que se requiere suscripción para mostrar mensaje
-              setSubscriptionRequired(true);
-              
-              // Resetear ref para la próxima verificación
-              subscriptionCheckDoneRef.current = false;
-              lastCheckedUserIdRef.current = null;
-              
-              // Cerrar sesión - esto limpiará el estado y mostrará login
-              await supabase.auth.signOut();
-              return;
-            }
-            
-            logger.dev('✅ [loadUserData] Gestor con suscripción activa - permitiendo acceso');
-          }
-          
           setUserRole(userData.rol_id || 2);
           setRegistroCompleto(userData.registro_completo === true);
           logger.dev('✅ Datos de usuario cargados:', userData.rol_id, '- registro_completo:', userData.registro_completo);
           
-          // 🚀 Iniciar servicio de presencia para usuarios Supabase Auth (no legacy)
-          // Solo si tiene registro completo y está en desktop
-          // 🔑 CRÍTICO: Usar userData.id (ID de tabla usuarios) NO user.id (auth_user_id)
-          if (userData.registro_completo && isElectronApp) {
+          // 🚀 Iniciar servicio de presencia para usuarios con registro completo
+          if (userData.registro_completo) {
             try {
               const { getAppVersion } = await import('@/lib/appVersion');
               const appVersion = await getAppVersion();
@@ -414,11 +312,10 @@ export const AuthProvider = ({ children }) => {
                   platform: navigator.platform
                 }
               });
-              logger.dev('✅ Servicio de presencia iniciado para usuario Supabase Auth');
+              logger.dev('✅ Servicio de presencia iniciado');
               
-              // 💓 Iniciar heartbeat ligero - también debe usar userData.id
               lightweightHeartbeatService.start(userData.id);
-              logger.dev('💓 Heartbeat ligero iniciado para usuario Supabase Auth');
+              logger.dev('💓 Heartbeat ligero iniciado');
             } catch (e) {
               logger.warn('⚠️ No se pudo iniciar servicio de presencia:', e);
             }
