@@ -17,10 +17,10 @@ export const SUBSCRIPTION_STATUS = {
 
 /**
  * Hook para gestionar el estado de suscripción del usuario
- * Solo aplica para usuarios con rol_id = 2 (Gestores)
+ * v2: Solo usa Supabase Auth, rol es texto ('user', 'admin')
  */
 export const useSubscription = () => {
-  const { user, isLegacyUser, userRole } = useAuth()
+  const { user, userRole } = useAuth()
   
   const [subscription, setSubscription] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -28,8 +28,8 @@ export const useSubscription = () => {
 
   // Cargar suscripción
   const loadSubscription = useCallback(async () => {
-    // Solo cargar para usuarios rol_id = 2 (gestores)
-    if (!user || userRole !== 2) {
+    // v2: Cargar para todos los usuarios autenticados (sin filtro por rol)
+    if (!user) {
       setSubscription(null)
       setLoading(false)
       return
@@ -39,26 +39,11 @@ export const useSubscription = () => {
       setLoading(true)
       setError(null)
 
-      // Obtener auth_user_id según tipo de usuario
-      let authUserId = null
-      
-      if (isLegacyUser) {
-        // Para usuarios legacy, buscar por id en la tabla usuarios
-        const userId = user?.id || user?.usuario_id || user?.user_id
-        const { data: userData } = await supabase
-          .from('usuarios')
-          .select('auth_user_id')
-          .eq('id', userId)
-          .single()
-        
-        authUserId = userData?.auth_user_id
-      } else {
-        // Para usuarios de Supabase Auth
-        authUserId = user?.id
-      }
+      // v2: Solo usar Supabase Auth (auth_user_id = user.id)
+      const authUserId = user?.id
 
       if (!authUserId) {
-        logger.dev('⚠️ Usuario sin auth_user_id - probablemente usuario legacy sin suscripción')
+        logger.dev('⚠️ Usuario sin ID de auth')
         setSubscription(null)
         setLoading(false)
         return
@@ -141,7 +126,7 @@ export const useSubscription = () => {
     } finally {
       setLoading(false)
     }
-  }, [user, isLegacyUser, userRole])
+  }, [user])
 
   // Cargar al montar y cuando cambie el usuario
   useEffect(() => {

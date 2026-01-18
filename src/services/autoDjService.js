@@ -1811,10 +1811,11 @@ class AutoDjService {
       this.currentPlaylist = playlist;
       this.playQueue = filteredSongs; // Usar canciones filtradas
       
-      // Seleccionar canción según orden configurado
+      // Seleccionar canción según orden configurado (nuevo esquema usa orden_reproduccion)
       let selectedSong;
+      const ordenReproduccion = playlist.orden_reproduccion || playlist.orden || 'aleatorio';
       
-      if (playlist.orden === 'aleatorio') {
+      if (ordenReproduccion === 'aleatorio') {
         // 🎰 SISTEMA DE BOLSA: Obtener solo canciones que no se han reproducido aún
         const songsFromBag = this.getSongsFromBag(playlist.id, filteredSongs);
         
@@ -2519,10 +2520,11 @@ class AutoDjService {
         return null;
       }
       
-      // Seleccionar canción según orden configurado
+      // Seleccionar canción según orden configurado (nuevo esquema usa orden_reproduccion)
       let selectedSong;
+      const ordenReproduccion = playlist.orden_reproduccion || playlist.orden || 'aleatorio';
       
-      if (playlist.orden === 'aleatorio') {
+      if (ordenReproduccion === 'aleatorio') {
         // 🔀 Mezclar canciones para garantizar verdadera aleatoriedad
         const shuffledSongs = this.shuffleArray(filteredSongs);
         const randomIndex = Math.floor(Math.random() * shuffledSongs.length);

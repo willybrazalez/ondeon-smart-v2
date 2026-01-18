@@ -10,20 +10,13 @@ import WaveBackground from '@/components/player/WaveBackground';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { usuariosApi } from '@/lib/api';
 import { stripeApi, STRIPE_PRICES } from '@/lib/stripeApi';
 import logger from '@/lib/logger';
 
-// Sectores disponibles (de la base de datos)
-const SECTORES = [
-  { id: 9, nombre: 'Hostelería' },
-  { id: 14, nombre: 'Farmacia' },
-  { id: 15, nombre: 'Tiendas' },
-  { id: 16, nombre: 'Centro Comercial' },
-  { id: 5, nombre: 'Parking' },
-  { id: 1, nombre: 'Salones de Juego' },
-  { id: 2, nombre: 'Bingos' },
-  { id: 3, nombre: 'Casinos' },
-  { id: 0, nombre: 'Otro' }, // Opción para sector personalizado
+// Sectores por defecto (se cargan dinámicamente desde BD)
+const DEFAULT_SECTORES = [
+  { id: 'otro', nombre: 'Otro' } // Fallback si no carga la BD
 ];
 
 export default function RegisterPage() {
@@ -48,6 +41,9 @@ export default function RegisterPage() {
   // Plan selection
   const [selectedPlan, setSelectedPlan] = useState('pro'); // 'basico' o 'pro'
   const [billingInterval, setBillingInterval] = useState('anual'); // 'mensual' o 'anual' - Por defecto anual para mostrar mejor precio
+  
+  // Sectores cargados desde BD
+  const [sectores, setSectores] = useState(DEFAULT_SECTORES);
   
   // Ref para evitar que re-renders interrumpan el guardado
   const isSavingRef = useRef(false);
@@ -105,7 +101,7 @@ export default function RegisterPage() {
           // Si es así, redirigir directamente al dashboard (no mostrar formulario)
           const { data: userData, error: userError } = await supabase
             .from('usuarios')
-            .select('id, registro_completo, establecimiento, telefono, sector_id, rol_id')
+            .select('id, registro_completo, establecimiento, telefono, sector_id, rol')
             .eq('auth_user_id', user.id)
             .single();
           
@@ -202,6 +198,23 @@ export default function RegisterPage() {
     };
   }, []);
 
+  // 📂 Cargar sectores desde la BD
+  useEffect(() => {
+    const loadSectores = async () => {
+      try {
+        const data = await usuariosApi.getSectores();
+        if (data && data.length > 0) {
+          // Agregar opción "Otro" al final
+          setSectores([...data, { id: 'otro', nombre: 'Otro' }]);
+          logger.dev(`✅ ${data.length} sectores cargados desde BD`);
+        }
+      } catch (error) {
+        logger.warn('⚠️ No se pudieron cargar sectores, usando fallback');
+      }
+    };
+    loadSectores();
+  }, []);
+
   // Títulos por paso
   const stepTitles = [
     '',
@@ -239,7 +252,7 @@ export default function RegisterPage() {
     </div>
   );
 
-  // Autenticación con Google (incluye metadata de gestor)
+  // Autenticación con Google
   const handleGoogleAuth = async () => {
     setError('');
     setLoading(true);
@@ -254,7 +267,7 @@ export default function RegisterPage() {
             prompt: 'consent',
           },
           data: {
-            rol_id: 2 // Identificar como gestor
+            rol: 'user' // v2: rol es texto
           }
         }
       });
@@ -278,7 +291,7 @@ export default function RegisterPage() {
         options: {
           redirectTo: `${window.location.origin}/registro`,
           data: {
-            rol_id: 2 // Identificar como gestor
+            rol: 'user' // v2: rol es texto
           }
         }
       });
@@ -320,7 +333,7 @@ export default function RegisterPage() {
     }
     
     try {
-      // Registrar con metadata de gestor (rol_id = 2)
+      // Registrar usuario nuevo
       // 🔑 CRÍTICO: Usar URL de producción para emailRedirectTo
       // En Electron, window.location.origin puede ser file:// o localhost
       // El usuario verificará en el navegador y luego volverá a la app
@@ -334,7 +347,7 @@ export default function RegisterPage() {
         password: form.password,
         options: {
           data: {
-            rol_id: 2, // Identificar como gestor
+            rol: 'user', // v2: rol es texto
             nombre: form.email.split('@')[0]
           },
           emailRedirectTo: emailRedirectUrl
@@ -354,14 +367,14 @@ export default function RegisterPage() {
           // Verificar si ya tiene registro completo
           const { data: userData, error: userError } = await supabase
             .from('usuarios')
-            .select('id, registro_completo, rol_id')
+            .select('id, registro_completo, rol')
             .eq('auth_user_id', data.user.id)
             .maybeSingle();
           
           if (userData?.registro_completo) {
             logger.dev('✅ Usuario existente con registro completo, redirigiendo...');
-            // Usuario ya registrado completamente, redirigir según rol
-            const targetRoute = userData.rol_id === 2 ? '/gestor' : '/';
+            // Usuario ya registrado completamente, redirigir al player o dashboard
+            const targetRoute = userData.rol === 'admin' ? '/gestor' : '/';
             setError('');
             navigate(targetRoute, { replace: true });
             return;
@@ -479,7 +492,7 @@ export default function RegisterPage() {
       return;
     }
 
-    if (form.sectorId === '0' && !form.sectorOtro) {
+    if (form.sectorId === 'otro' && !form.sectorOtro) {
       setError('Por favor indica tu sector.');
       setLoading(false);
       return;
@@ -507,15 +520,18 @@ export default function RegisterPage() {
       // Esto soluciona el problema donde el registro nunca se creaba antes del checkout
       logger.dev('🔄 Creando/actualizando public.usuarios con UPSERT...');
       
+      // 🔑 sector_id ahora es UUID (o null si eligió "otro")
+      const sectorIdValue = form.sectorId && form.sectorId !== 'otro' ? form.sectorId : null;
+      
       const userData = {
         auth_user_id: authUserId,
         email: userEmail,
         nombre: form.nombre || userCreated?.user_metadata?.full_name || userCreated?.user_metadata?.name,
         telefono: form.telefono || null,
         establecimiento: form.establecimiento,
-        sector_id: form.sectorId !== '0' ? parseInt(form.sectorId) : null,
-        notas: form.sectorId === '0' ? `Sector: ${form.sectorOtro}` : null,
-        rol_id: 2, // Gestor
+        sector_id: sectorIdValue,
+        notas: form.sectorId === 'otro' ? `Sector: ${form.sectorOtro}` : null,
+        rol: 'user', // v2: rol es texto ('admin', 'user')
         registro_completo: false, // Se marcará true después del pago exitoso
       };
       
@@ -533,24 +549,7 @@ export default function RegisterPage() {
         throw upsertError;
       }
       logger.dev('✅ Usuario creado/actualizado en public.usuarios:', upsertedUser?.id);
-      
-      // 🔑 También crear registro en user_current_state si no existe (necesario para presencia)
-      if (upsertedUser?.id) {
-        const { error: stateError } = await supabase
-          .from('user_current_state')
-          .upsert({
-            usuario_id: upsertedUser.id,
-            is_online: false,
-            last_seen_at: new Date().toISOString(),
-          }, {
-            onConflict: 'usuario_id',
-            ignoreDuplicates: true
-          });
-        
-        if (stateError) {
-          logger.warn('⚠️ Error creando user_current_state (no crítico):', stateError);
-        }
-      }
+      // NOTA: user_current_state se crea automáticamente al primer heartbeat via rpc_heartbeat
 
       // SEGUNDO: Actualizar metadata en Supabase Auth (puede disparar re-render)
       // Lo hacemos en segundo lugar y NO esperamos a que termine antes de avanzar
@@ -560,9 +559,9 @@ export default function RegisterPage() {
           nombre: form.nombre || userCreated?.user_metadata?.full_name,
           telefono: form.telefono,
           establecimiento: form.establecimiento,
-          sector_id: form.sectorId !== '0' ? parseInt(form.sectorId) : null,
-          sector_otro: form.sectorId === '0' ? form.sectorOtro : null,
-          rol_id: 2
+          sector_id: sectorIdValue,
+          sector_otro: form.sectorId === 'otro' ? form.sectorOtro : null,
+          rol: 'user' // v2: rol es texto
         }
       }).then(({ error: authUpdateError }) => {
         if (authUpdateError) {
@@ -651,14 +650,14 @@ export default function RegisterPage() {
     const ProviderIcon = reAuthProvider === 'apple' ? FaApple : FcGoogle;
     
     return (
-      <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-2">
+      <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-4 py-8 safe-area-top safe-area-bottom">
         <WaveBackground isPlaying={true} />
         <div className="w-full max-w-md mx-auto z-10">
           <Card className="p-6 sm:p-8 rounded-2xl shadow-xl flex flex-col items-center w-full bg-card/95 dark:bg-[#181c24]/90 backdrop-blur-md">
             <img 
               src="/assets/icono-ondeon.png" 
               alt="Logo Ondeón" 
-              className="h-12 sm:h-14 mb-4"
+              className="h-14 sm:h-16 mb-4"
               onError={(e) => { e.target.style.display = 'none'; }}
             />
             
@@ -736,14 +735,14 @@ export default function RegisterPage() {
   // Paso 1: Elección de método de registro
   if (step === 1) {
     return (
-      <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-2">
+      <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-4 py-8 safe-area-top safe-area-bottom">
         <WaveBackground isPlaying={true} />
         <div className="w-full max-w-md mx-auto z-10">
           <Card className="p-6 sm:p-8 rounded-2xl shadow-xl flex flex-col items-center w-full bg-card/95 dark:bg-[#181c24]/90 backdrop-blur-md">
             <img 
               src="/assets/icono-ondeon.png" 
               alt="Logo Ondeón" 
-              className="h-12 sm:h-14 mb-2"
+              className="h-14 sm:h-16 mb-3"
               onError={(e) => {
                 console.error('Error al cargar el logo en RegisterPage');
                 e.target.style.display = 'none';
@@ -1077,7 +1076,7 @@ export default function RegisterPage() {
                   required
                 >
                   <option value="" className="bg-[#1a1e26]">Selecciona un sector...</option>
-                  {SECTORES.map((sector) => (
+                  {sectores.map((sector) => (
                     <option key={sector.id} value={sector.id} className="bg-[#1a1e26]">
                       {sector.nombre}
                     </option>
@@ -1086,7 +1085,7 @@ export default function RegisterPage() {
               </div>
 
               {/* Campo para sector personalizado si elige "Otro" */}
-              {form.sectorId === '0' && (
+              {form.sectorId === 'otro' && (
                 <div className="space-y-2">
                   <Label className="text-gray-300 text-sm font-medium">Indica tu sector *</Label>
                   <Input

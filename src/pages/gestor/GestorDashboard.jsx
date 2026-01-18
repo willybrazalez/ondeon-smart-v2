@@ -416,10 +416,10 @@ const GestorDashboard = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0a0e14] relative overflow-hidden">
+    <div className="min-h-screen bg-[#0a0e14] relative overflow-hidden pb-24 md:pb-8">
       {/* Efecto de fondo - Foco azul */}
       <div 
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full opacity-20 blur-[150px] pointer-events-none"
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] md:w-[800px] h-[500px] md:h-[800px] rounded-full opacity-20 blur-[150px] pointer-events-none"
         style={{
           background: 'radial-gradient(circle, #A2D9F7 0%, transparent 70%)',
         }}
@@ -427,100 +427,105 @@ const GestorDashboard = () => {
       
       {/* Efecto secundario más pequeño */}
       <div 
-        className="absolute top-1/4 right-1/4 w-[400px] h-[400px] rounded-full opacity-10 blur-[100px] pointer-events-none"
+        className="absolute top-1/4 right-1/4 w-[250px] md:w-[400px] h-[250px] md:h-[400px] rounded-full opacity-10 blur-[100px] pointer-events-none"
         style={{
           background: 'radial-gradient(circle, #7EC8E3 0%, transparent 70%)',
         }}
       />
 
-      {/* Header - Igual que el reproductor */}
-      <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-8 py-4">
-        {/* Logo + SMART */}
-        <div className="flex items-center gap-2">
-          <img 
-            src="/assets/icono-ondeon.png"
-            alt="Ondeón Logo"
-            className="h-12 w-12 sm:h-14 sm:w-14 drop-shadow-lg"
-            style={{ maxWidth: 'none' }}
-            onError={(e) => {
-              console.error('Error al cargar el logo');
-              e.target.style.display = 'none';
-            }}
-          />
-          <span className="text-2xl tracking-[0.2em] font-light text-[#A2D9F7] font-sans">SMART</span>
-        </div>
+      {/* Header - Versión móvil compacta */}
+      <header className="fixed top-0 left-0 right-0 z-50 safe-area-top bg-[#0a0e14]/90 backdrop-blur-xl border-b border-white/5 md:bg-transparent md:border-b-0 md:backdrop-blur-0">
+        <div className="flex items-center justify-between px-4 md:px-8 h-14 md:h-auto md:py-4">
+          {/* Logo + SMART */}
+          <div className="flex items-center gap-2">
+            <img 
+              src="/assets/icono-ondeon.png"
+              alt="Ondeón Logo"
+              className="h-10 w-10 md:h-14 md:w-14 drop-shadow-lg"
+              style={{ maxWidth: 'none' }}
+              onError={(e) => {
+                console.error('Error al cargar el logo');
+                e.target.style.display = 'none';
+              }}
+            />
+            <span className="text-lg md:text-2xl tracking-[0.2em] font-light text-[#A2D9F7] font-sans">SMART</span>
+          </div>
 
-        {/* Usuario + Logout */}
-        <div className="flex items-center gap-2 sm:gap-4 px-3 py-1.5 rounded-2xl bg-black/5 dark:bg-white/5 backdrop-blur-md border border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.15)]">
-          <span className="text-sm text-[#A2D9F7] flex items-center gap-2">
-            {displayEmail}
-            <Circle size={8} className="fill-green-500 text-green-500" />
-          </span>
+          {/* Usuario + Logout */}
+          <div className="flex items-center gap-2 md:gap-4 px-2 md:px-3 py-1 md:py-1.5 rounded-2xl bg-white/5 backdrop-blur-md border border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.15)]">
+            <span className="hidden sm:flex text-xs md:text-sm text-[#A2D9F7] items-center gap-2">
+              {displayEmail}
+              <Circle size={6} className="fill-green-500 text-green-500" />
+            </span>
+            <span className="sm:hidden">
+              <Circle size={6} className="fill-green-500 text-green-500" />
+            </span>
 
-          {/* Logout */}
-          <button
-            onClick={handleLogout}
-            className="w-8 h-8 flex items-center justify-center text-foreground/60 hover:text-[#A2D9F7] transition-colors"
-            title="Cerrar sesión"
-          >
-            <LogOut size={20} />
-          </button>
+            {/* Logout */}
+            <button
+              onClick={handleLogout}
+              className="w-8 h-8 flex items-center justify-center text-foreground/60 hover:text-red-400 transition-colors"
+              title="Cerrar sesión"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="relative z-10 px-8 pt-24 pb-8">
-        {/* Hero Section */}
-        <section className="text-center mb-16">
+      <main className="relative z-10 px-4 md:px-8 pt-20 md:pt-24 pb-8">
+        {/* Hero Section - Más compacto en móvil */}
+        <section className="text-center mb-8 md:mb-16">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
           >
-            <h2 className="text-3xl md:text-4xl font-light text-white italic mb-4">
-              Tu música, tu negocio, tu estilo
+            <h2 className="text-2xl md:text-4xl font-light text-white italic mb-2 md:mb-4">
+              Tu música, tu negocio
             </h2>
-            <p className="text-white/40 text-base mb-10 max-w-lg mx-auto">
+            <p className="text-white/40 text-sm md:text-base mb-6 md:mb-10 max-w-lg mx-auto px-4">
               Gestiona tu cuenta y suscripción desde aquí
             </p>
             
             {/* Botón para volver al reproductor */}
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <div className="flex justify-center">
               <Button
                 size="lg"
-                className="h-12 px-8 bg-[#A2D9F7]/20 hover:bg-[#A2D9F7]/30 text-white border border-[#A2D9F7]/30 hover:border-[#A2D9F7]/50 transition-all rounded-xl"
+                className="h-11 md:h-12 px-6 md:px-8 bg-[#A2D9F7]/20 hover:bg-[#A2D9F7]/30 text-white border border-[#A2D9F7]/30 hover:border-[#A2D9F7]/50 transition-all rounded-xl text-sm md:text-base"
                 onClick={() => navigate('/')}
               >
-                <Home className="w-5 h-5 mr-3" />
+                <Home className="w-4 h-4 md:w-5 md:h-5 mr-2 md:mr-3" />
                 Volver al reproductor
               </Button>
             </div>
           </motion.div>
         </section>
 
-        {/* Cards Grid */}
+        {/* Cards Grid - Optimizado para móvil */}
         <section className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-6">
             {cards.map((card, index) => (
               <motion.button
                 key={card.id}
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 + index * 0.1, duration: 0.5 }}
+                transition={{ delay: 0.1 + index * 0.05, duration: 0.4 }}
                 onClick={() => card.id === 'datos' ? handleOpenDatosModal() : setActiveModal(card.id)}
-                className="group relative aspect-square bg-[#12161c] hover:bg-[#161b23] border border-white/[0.06] hover:border-white/[0.12] rounded-2xl p-6 text-left transition-all duration-300 overflow-hidden"
+                className="group relative aspect-square bg-[#12161c] hover:bg-[#161b23] active:scale-[0.98] border border-white/[0.06] hover:border-white/[0.12] rounded-xl md:rounded-2xl p-4 md:p-6 text-left transition-all duration-200 overflow-hidden"
               >
                 {/* Icono grande de fondo */}
-                <div className="absolute -right-6 -bottom-6 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity">
-                  <card.icon className="w-40 h-40" />
+                <div className="absolute -right-4 -bottom-4 md:-right-6 md:-bottom-6 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity">
+                  <card.icon className="w-24 h-24 md:w-40 md:h-40" />
                 </div>
                 
                 {/* Contenido */}
                 <div className="relative z-10 h-full flex flex-col justify-between">
-                  <h3 className="text-xl md:text-2xl font-medium text-white/90 whitespace-pre-line leading-tight">
+                  <h3 className="text-base md:text-2xl font-medium text-white/90 whitespace-pre-line leading-tight">
                     {card.title}
                   </h3>
-                  <card.icon className="w-8 h-8 text-[#A2D9F7]/60" />
+                  <card.icon className="w-6 h-6 md:w-8 md:h-8 text-[#A2D9F7]/60" />
                 </div>
               </motion.button>
             ))}

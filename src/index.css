@@ -382,3 +382,68 @@
     opacity: 0.9;
   }
 }
+
+/* ======================================
+   UTILIDADES MOBILE ADICIONALES
+   ====================================== */
+
+/* Padding inferior seguro para navegación */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+}
+
+/* Safe area completa */
+@supports (padding: env(safe-area-inset-top)) {
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+/* Ocultar scrollbar en mobile manteniendo funcionalidad */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Touch scroll suave */
+.touch-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* Prevenir zoom en inputs (iOS) */
+@media screen and (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Clase para contenido principal con navegación inferior */
+.main-with-bottom-nav {
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Gradiente oscuro para fondos en player móvil */
+.mobile-player-gradient {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(10, 14, 20, 0.6) 50%,
+    rgba(10, 14, 20, 0.95) 100%
+  );
+}
+
+/* Card con blur para móvil */
+.mobile-glass-card {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+}
