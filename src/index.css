@@ -325,3 +325,60 @@
     animation-play-state: paused !important;
   }
 }
+
+/* ======================================
+   ESTILOS MÓVILES (Capacitor/PWA)
+   ====================================== */
+
+/* Safe area padding para dispositivos con notch */
+.safe-area-top {
+  padding-top: var(--safe-area-inset-top, 0px);
+}
+
+.safe-area-bottom {
+  padding-bottom: var(--safe-area-inset-bottom, 0px);
+}
+
+/* Navegación inferior móvil */
+@media (max-width: 768px) {
+  /* Ajustes de tamaño de texto para móvil */
+  html {
+    font-size: 16px;
+  }
+  
+  /* Botones más grandes para touch */
+  .btn-mobile {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Espaciado inferior para navegación móvil */
+  .mobile-nav-spacer {
+    height: calc(60px + var(--safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Controles de volumen adaptados para móvil */
+@media (max-width: 768px) {
+  .volume-control-mobile {
+    width: 100%;
+    height: 44px;
+    padding: 0 16px;
+  }
+}
+
+/* Animación suave para transiciones táctiles */
+@media (hover: none) and (pointer: coarse) {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  button, a, [role="button"] {
+    transition: transform 0.1s ease-out, opacity 0.1s ease-out;
+  }
+  
+  button:active, a:active, [role="button"]:active {
+    transform: scale(0.97);
+    opacity: 0.9;
+  }
+}

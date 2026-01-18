@@ -3,43 +3,46 @@
 	<head>
 		<meta charset="UTF-8" />
 		<link rel="icon" type="image/png" href="/assets/icono-ondeon.png" />
-		<meta name="generator" content="Hostinger Horizons" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+		<meta name="theme-color" content="#0a0e14" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<meta name="mobile-web-app-capable" content="yes" />
 		<title>Ondeon SMART</title>
 		<script>
-			// ✅ CRÍTICO Windows/Electron: Forzar tema oscuro por defecto
+			// Forzar tema oscuro por defecto
 			(function() {
-				function getInitialTheme() {
-					try {
-						// Intentar leer desde localStorage
-						const savedTheme = localStorage.getItem('theme');
-						if (savedTheme) {
-							return savedTheme;
-						}
-					} catch (e) {
-						// Si falla localStorage (común en Electron), usar 'dark'
-						console.warn('⚠️ localStorage no disponible, usando tema oscuro');
-					}
-					// ✅ CAMBIO CRÍTICO: SIEMPRE usar 'dark' por defecto (no system preference)
-					return 'dark';
-				}
-
-				const theme = getInitialTheme();
-				// Aplicar tema inmediatamente para evitar flash
-				document.documentElement.classList.remove('light', 'dark');
+				const theme = localStorage.getItem('theme') || 'dark';
 				document.documentElement.classList.add(theme);
-				
-				// Guardar en localStorage si está disponible
-				try {
-					localStorage.setItem('theme', theme);
-				} catch (e) {
-					console.warn('⚠️ No se pudo guardar tema en localStorage');
-				}
+				localStorage.setItem('theme', theme);
 			})();
 		</script>
 		<link rel="preconnect" href="https://fonts.googleapis.com">
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@700&display=swap" rel="stylesheet">
+		<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@700&display=swap" rel="stylesheet">
+		<style>
+			/* Safe area insets para dispositivos con notch */
+			:root {
+				--safe-area-inset-top: env(safe-area-inset-top, 0px);
+				--safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+				--safe-area-inset-left: env(safe-area-inset-left, 0px);
+				--safe-area-inset-right: env(safe-area-inset-right, 0px);
+			}
+			
+			/* Prevenir selección de texto en móvil */
+			body {
+				-webkit-touch-callout: none;
+				-webkit-user-select: none;
+				user-select: none;
+				-webkit-tap-highlight-color: transparent;
+			}
+			
+			/* Permitir selección en inputs */
+			input, textarea {
+				-webkit-user-select: text;
+				user-select: text;
+			}
+		</style>
 	</head>
 	<body>
 		<div id="root"></div>
