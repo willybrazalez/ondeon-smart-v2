@@ -391,36 +391,11 @@ function AppContent() {
   
   const { theme } = useTheme();
   const { user, loading: authLoading, userChannels, channelsLoading, signOut, ensureChannelsLoaded, loadUserActiveChannels, isManualPlaybackActive, manualPlaybackInfo, registroCompleto, isLegacyUser } = useAuth();
-  const { roleName, hasPermission, uiConfig, userRole, ROLES } = useRole();
+  const { roleName, hasPermission, uiConfig, userRole } = useRole();
   const navigate = useNavigate();
   
-  // 🚫 BLOQUEO WEB: Determinar si el reproductor debe estar habilitado
-  // En web: Solo ADMINISTRADORES pueden usar el reproductor
-  // Básicos y Gestores en web van a sus respectivos dashboards, NO al reproductor
-  const isWebBasicUser = isWeb && userRole === ROLES.BASICO;
-  const isWebGestor = isWeb && userRole === ROLES.GESTOR;
-  const shouldEnablePlayer = !!user && !isWebBasicUser && !isWebGestor;
-  
-  // 🔍 DEBUG: Log para verificar el rol del usuario
-  React.useEffect(() => {
-    if (user) {
-      console.log('👤 [Role Debug]', {
-        userRole,
-        roleName,
-        isWeb,
-        isWebBasicUser,
-        isWebGestor,
-        shouldEnablePlayer,
-        registroCompleto,
-        expectedRedirect: isWeb ? (
-          userRole === ROLES.BASICO ? '/solo-desktop' :
-          userRole === ROLES.GESTOR ? '/gestor' :
-          userRole === ROLES.ADMINISTRADOR ? '/admin/dashboard' : 'unknown'
-        ) : '/ (desktop)',
-        ROLES_VALUES: ROLES
-      });
-    }
-  }, [user, userRole, isWeb, roleName, ROLES, isWebBasicUser, isWebGestor, shouldEnablePlayer, registroCompleto]);
+  // Todos los usuarios autenticados pueden usar el reproductor
+  const shouldEnablePlayer = !!user;
 
   // 🔑 CRÍTICO: Redirigir a registro si el usuario no completó el onboarding
   React.useEffect(() => {
@@ -994,15 +969,9 @@ function AppContent() {
       logger.warn('⚠️ Timeout en signOut, forzando recarga...');
     }
     
-    // ✅ SIEMPRE recargar la app (incluso si hay errores)
-    // El flag ondeon_logging_out evitará que se restaure la sesión
-    if (window.electronAPI?.reloadApp) {
-      logger.dev('🔄 Recargando aplicación Electron...');
-      setTimeout(() => window.electronAPI.reloadApp(), 500);
-    } else {
-      logger.dev('🔁 Navegando a /login...');
-      setTimeout(() => window.location.replace('/login'), 300);
-    }
+    // ✅ Navegar a /login
+    logger.dev('🔁 Navegando a /login...');
+    setTimeout(() => window.location.replace('/login'), 300);
   };
 
   const handlePlayPause = () => {

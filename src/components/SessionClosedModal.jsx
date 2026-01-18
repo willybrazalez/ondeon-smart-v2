@@ -34,29 +34,13 @@ export default function SessionClosedModal({ isOpen }) {
       // 2. Hacer logout completo
       await signOut();
       
-      // 3. Forzar recarga completa - Compatible con Electron y navegador web
-      logger.warn('🔄 Forzando recarga completa...');
-      
-      // ✅ En Electron: usar IPC para recargar desde el proceso principal
-      if (window.electronAPI?.reloadApp) {
-        logger.warn('🔄 Recargando aplicación Electron...');
-        setTimeout(() => {
-          window.electronAPI.reloadApp();
-        }, 300);
-      } else {
-        // ✅ En navegador web: redireccionar con router
-        window.location.href = '/login';
-      }
+      // 3. Redirigir al login
+      logger.warn('🔄 Redirigiendo al login...');
+      window.location.href = '/login';
     } catch (error) {
       logger.error('❌ Error al cerrar sesión:', error);
-      // Forzar recarga de todos modos
-      if (window.electronAPI?.reloadApp) {
-        setTimeout(() => {
-          window.electronAPI.reloadApp();
-        }, 300);
-      } else {
-        window.location.href = '/login';
-      }
+      // Forzar redirección de todos modos
+      window.location.href = '/login';
     }
   };
 

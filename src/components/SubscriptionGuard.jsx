@@ -2,14 +2,13 @@ import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSubscription, SUBSCRIPTION_STATUS } from '@/hooks/useSubscription';
-import { useRole, ROLES } from '@/hooks/useRole';
+import { useRole } from '@/hooks/useRole';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, Loader2, CreditCard } from 'lucide-react';
 
 /**
  * Componente que protege rutas según el estado de la suscripción
- * Solo aplica para usuarios con rol_id = 2 (Gestores)
  * 
  * @param {Object} props
  * @param {React.ReactNode} props.children - Contenido a mostrar si tiene acceso
@@ -36,11 +35,6 @@ const SubscriptionGuard = ({
   // Si no hay usuario, redirigir a login
   if (!authLoading && !user) {
     return <Navigate to="/login" replace />;
-  }
-
-  // Si el rol no es gestor (2), permitir acceso sin verificar suscripción
-  if (userRole !== ROLES.GESTOR) {
-    return <>{children}</>;
   }
 
   // Mostrar loading mientras se cargan datos

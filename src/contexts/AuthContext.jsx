@@ -377,19 +377,12 @@ export const AuthProvider = ({ children }) => {
             }
             
             
-            // Si NO tiene suscripción activa, cerrar sesión y abrir dashboard web
+            // Si NO tiene suscripción activa, marcar y redirigir
             if (!subscriptionData) {
-              logger.dev('⚠️ [loadUserData] Gestor sin suscripción activa en Electron - cerrando sesión');
-              
+              logger.dev('⚠️ [loadUserData] Gestor sin suscripción activa');
               
               // 🔔 Marcar que se requiere suscripción para mostrar mensaje
               setSubscriptionRequired(true);
-              
-              // Abrir dashboard web para renovar ANTES de cerrar sesión
-              if (window.electronAPI?.openExternal) {
-                const webDashboardUrl = 'https://main.dnpo8nagdov1i.amplifyapp.com/gestor';
-                window.electronAPI.openExternal(webDashboardUrl);
-              }
               
               // Resetear ref para la próxima verificación
               subscriptionCheckDoneRef.current = false;

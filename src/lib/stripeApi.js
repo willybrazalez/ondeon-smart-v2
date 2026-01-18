@@ -110,21 +110,12 @@ export const stripeApi = {
   },
 
   /**
-   * Redirigir al checkout de Stripe (siempre en navegador externo)
+   * Redirigir al checkout de Stripe
    * @param {string} checkoutUrl - URL del checkout session
    */
   redirectToCheckout(checkoutUrl) {
     if (!checkoutUrl) return
-    
-    // Siempre abrir en navegador externo (Stripe Checkout requiere navegador completo)
-    if (window.electronAPI?.openExternal) {
-      window.electronAPI.openExternal(checkoutUrl)
-    } else if (window.electron?.shell?.openExternal) {
-      window.electron.shell.openExternal(checkoutUrl)
-    } else {
-      // Web: redirigir en la misma ventana o nueva pestaña
-      window.open(checkoutUrl, '_blank')
-    }
+    window.open(checkoutUrl, '_blank')
   },
 
   /**
@@ -173,25 +164,14 @@ export const stripeApi = {
   },
 
   /**
-   * Abrir el Customer Portal en el navegador externo
+   * Abrir el Customer Portal en una nueva pestaña
    * @param {string} auth_user_id - UUID del usuario
    * @param {string} [return_url] - URL de retorno
    * @param {string} [flow_type] - Tipo de flujo directo
    */
   async openPortal(auth_user_id, return_url = null, flow_type = null) {
     const { portal_url } = await this.getPortalUrl(auth_user_id, return_url, flow_type)
-    
-    // Siempre abrir en navegador externo (Stripe requiere navegador completo)
-    if (window.electronAPI?.openExternal) {
-      // Electron: usar API expuesta por preload
-      window.electronAPI.openExternal(portal_url)
-    } else if (window.electron?.shell?.openExternal) {
-      // Electron legacy
-      window.electron.shell.openExternal(portal_url)
-    } else {
-      // Web: abrir en nueva pestaña
-      window.open(portal_url, '_blank')
-    }
+    window.open(portal_url, '_blank')
   },
 
   /**

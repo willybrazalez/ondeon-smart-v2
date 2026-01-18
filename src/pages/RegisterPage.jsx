@@ -243,144 +243,27 @@ export default function RegisterPage() {
     </div>
   );
 
-  // OAuth callback - ya no usa Electron
-  useEffect(() => {
-    // Este efecto ya no es necesario sin Electron
-    return;
-    
-    logger.dev('🔐 [OAuth Register] Configurando listener para deep links...');
-    
-    window.electronAPI.onOAuthCallback(async (tokens) => {
-      logger.dev('🔐 [OAuth Register] Tokens recibidos desde deep link');
-      setLoading(true);
-      setError('');
-      
-      try {
-        // Establecer la sesión con los tokens recibidos
-        const { data, error } = await supabase.auth.setSession({
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token,
-        });
-        
-        if (error) throw error;
-        
-        // Obtener el usuario para actualizar el estado
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        if (user) {
-          logger.dev('🔐 [OAuth Register] Sesión establecida, usuario:', user.email);
-          
-          // 🔑 CRÍTICO: Verificar si el usuario ya tiene registro completo y suscripción activa
-          const { data: userData, error: userError } = await supabase
-            .from('usuarios')
-            .select('id, registro_completo, establecimiento, telefono, sector_id, rol_id')
-            .eq('auth_user_id', user.id)
-            .single();
-          
-          
-          if (!userError && userData?.registro_completo) {
-            logger.dev('✅ [OAuth Register] Usuario con registro completo detectado, verificando suscripción...');
-            
-            // 🔑 CRÍTICO: Verificar suscripción activa antes de permitir acceso
-            const { data: subscriptionData, error: subError } = await supabase
-              .from('suscripciones')
-              .select('estado')
-              .eq('usuario_id', userData.id)
-              .in('estado', ['active', 'trialing'])
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            
-            
-            // Si tiene suscripción activa/trial
-            if (subscriptionData) {
-              logger.dev('✅ [OAuth Register] Suscripción activa, permitiendo acceso al reproductor');
-              navigate('/', { replace: true });
-              setLoading(false);
-              return;
-            }
-            
-            // Sin suscripción activa - redirigir al dashboard web para renovar
-            logger.dev('⚠️ [OAuth Register] Sin suscripción activa, abriendo dashboard web');
-            
-            
-            if (isElectron && window.electronAPI?.openExternal) {
-              const webDashboardUrl = 'https://main.dnpo8nagdov1i.amplifyapp.com/gestor';
-              logger.dev('🌐 [OAuth Register] Abriendo dashboard en navegador web:', webDashboardUrl);
-              window.electronAPI.openExternal(webDashboardUrl);
-              setLoading(false);
-              setError('');
-              return;
-            }
-            
-            // En web, redirigir al dashboard normalmente
-            const targetRoute = userData.rol_id === 2 ? '/gestor' : '/';
-            navigate(targetRoute, { replace: true });
-            setLoading(false);
-            return;
-          }
-          
-          // Usuario nuevo o sin registro completo - ir al paso de completar perfil
-          setUserCreated(user);
-          setIsOAuthUser(true);
-          setForm(prev => ({
-            ...prev,
-            email: user.email || '',
-            nombre: user.user_metadata?.full_name || 
-                    user.user_metadata?.nombre || 
-                    user.user_metadata?.name || ''
-          }));
-          setStep(4); // Ir al paso de completar perfil
-        }
-      } catch (err) {
-        logger.error('🔐 [OAuth Register] Error estableciendo sesión:', err);
-        setError('Error al completar la autenticación: ' + err.message);
-      } finally {
-        setLoading(false);
-      }
-    });
-    
-    // Cleanup
-    return () => {
-      if (window.electronAPI?.removeOAuthCallback) {
-        window.electronAPI.removeOAuthCallback();
-      }
-    };
-  }, [isElectron, navigate]);
-
   // Autenticación con Google (incluye metadata de gestor)
   const handleGoogleAuth = async () => {
     setError('');
     setLoading(true);
 
     try {
-      // Flujo OAuth estándar web
-      if (false) {
-        // Código de Electron eliminado
-        const result = await window.electronAPI.startOAuth('google');
-        if (!result.success) {
-          throw new Error(result.error || 'Error iniciando OAuth');
-        }
-        logger.dev('🔐 [OAuth] Navegador abierto, esperando autenticación...');
-        // El loading se mantendrá hasta que llegue el callback
-      } else {
-        // En web: usar flujo normal de Supabase
-        const { data, error } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo: `${window.location.origin}/registro`,
-            queryParams: {
-              access_type: 'offline',
-              prompt: 'consent',
-            },
-            data: {
-              rol_id: 2 // Identificar como gestor
-            }
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/registro`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+          data: {
+            rol_id: 2 // Identificar como gestor
           }
-        });
+        }
+      });
 
-        if (error) throw error;
-      }
+      if (error) throw error;
     } catch (err) {
       logger.error('Error con Google:', err);
       setError('Error con Google: ' + err.message);
@@ -394,28 +277,17 @@ export default function RegisterPage() {
     setLoading(true);
     
     try {
-      // Flujo OAuth estándar web
-      if (false) {
-        // Código de Electron eliminado
-        const result = await window.electronAPI.startOAuth('apple');
-        if (!result.success) {
-          throw new Error(result.error || 'Error iniciando OAuth');
-        }
-        logger.dev('🔐 [OAuth] Navegador abierto, esperando autenticación...');
-      } else {
-        // En web: usar flujo normal de Supabase
-        const { data, error } = await supabase.auth.signInWithOAuth({
-          provider: 'apple',
-          options: {
-            redirectTo: `${window.location.origin}/registro`,
-            data: {
-              rol_id: 2 // Identificar como gestor
-            }
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'apple',
+        options: {
+          redirectTo: `${window.location.origin}/registro`,
+          data: {
+            rol_id: 2 // Identificar como gestor
           }
-        });
-        
-        if (error) throw error;
-      }
+        }
+      });
+      
+      if (error) throw error;
     } catch (err) {
       logger.error('Error con Apple:', err);
       setError('Error con Apple: ' + err.message);
