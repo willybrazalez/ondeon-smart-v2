@@ -22,12 +22,14 @@
     "player": "Player",
     "channels": "Channels",
     "content": "Content",
+    "contents": "Contents",
     "history": "History",
     "support": "Support",
     "createAd": "Create Ad",
     "settings": "Settings",
     "logout": "Logout",
-    "dashboard": "Admin Dashboard"
+    "dashboard": "Admin Dashboard",
+    "myAccount": "My Account"
   },
   "player": {
     "loading": "Loading...",
@@ -93,6 +95,35 @@
     "noChannels": "No channels available",
     "loadingChannels": "Loading channels...",
     "channelError": "Error loading channels"
+  },
+  "contents": {
+    "title": "Contents",
+    "subtitle": "Manage your scheduled content",
+    "total": "Total",
+    "active": "Active",
+    "paused": "Paused",
+    "all": "All",
+    "search": "Search contents...",
+    "loading": "Loading contents...",
+    "error": "Error",
+    "errorLoading": "Error loading",
+    "retry": "Retry",
+    "empty": "No contents",
+    "emptyDesc": "Scheduled contents will appear here when configured from the admin panel",
+    "noResults": "No results",
+    "noResultsDesc": "Try different filters or search terms",
+    "playing": "Playing",
+    "alreadyPlaying": "Content is already playing",
+    "errorPlaying": "Error playing"
+  },
+  "account": {
+    "title": "My Account",
+    "establishment": "Establishment",
+    "email": "Email",
+    "role": "Role",
+    "gestorDashboard": "Management Panel",
+    "gestorDesc": "Manage your establishment",
+    "logout": "Log Out"
   },
   "footer": {
     "version": "Ondeon Smart"

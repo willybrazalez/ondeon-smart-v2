@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" class="dark" style="background-color: #0a0e14;">
 	<head>
 		<meta charset="UTF-8" />
 		<link rel="icon" type="image/png" href="/assets/icono-ondeon.png" />
@@ -8,6 +8,7 @@
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 		<meta name="mobile-web-app-capable" content="yes" />
+		<meta name="background-color" content="#0a0e14" />
 		<title>Ondeon SMART</title>
 		<script>
 			// Forzar tema oscuro por defecto
@@ -21,6 +22,12 @@
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 		<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@700&display=swap" rel="stylesheet">
 		<style>
+			/* Fondo oscuro inmediato para evitar flash blanco */
+			html, body, #root {
+				background-color: #0a0e14 !important;
+				min-height: 100%;
+			}
+			
 			/* Safe area insets para dispositivos con notch */
 			:root {
 				--safe-area-inset-top: env(safe-area-inset-top, 0px);
@@ -44,8 +51,8 @@
 			}
 		</style>
 	</head>
-	<body>
-		<div id="root"></div>
+	<body style="background-color: #0a0e14;">
+		<div id="root" style="background-color: #0a0e14; min-height: 100vh;"></div>
 		<script type="module" src="/src/main.jsx"></script>
 	</body>
 </html>

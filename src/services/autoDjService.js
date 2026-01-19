@@ -473,9 +473,14 @@ class AutoDjService {
         return false;
       }
 
-      // Verificar si la canción sigue en la playlist
-      const songs = await songsApi.getPlaylistSongs(this.currentPlaylist.id);
-      const songExists = songs.some(song => song.id === this.currentSong.id);
+      // Verificar si la canción sigue en la playlist (pasando canalId para usar cache de RPC)
+      const songs = await songsApi.getPlaylistSongs(this.currentPlaylist.id, this.currentChannelId);
+      // 🔧 FIX: Normalizar formato - la canción puede venir de RPC (plano) o fallback (anidado)
+      const songExists = songs.some(song => {
+        const songId = song?.canciones?.id || song?.id;
+        const currentId = this.currentSong?.canciones?.id || this.currentSong?.id;
+        return songId === currentId;
+      });
       
       if (!songExists) {
         logger.dev('⚠️ Canción actual ya no está en la playlist');
@@ -1754,8 +1759,8 @@ class AutoDjService {
         throw new Error(`Playlist "${playlist.nombre}" pertenece al canal ${playlist.canal_id}, no al canal actual ${currentChannelId}`);
       }
       
-      // Cargar canciones de la playlist
-      const songs = await songsApi.getPlaylistSongs(playlist.id);
+      // Cargar canciones de la playlist (pasando canalId para usar cache de RPC)
+      const songs = await songsApi.getPlaylistSongs(playlist.id, currentChannelId);
       
       // 🔧 OPTIMIZACIÓN DISK I/O: Log solo en desarrollo
       if (process.env.NODE_ENV === 'development' && songs?.length > 0) {
@@ -1776,15 +1781,17 @@ class AutoDjService {
       logger.dev('✅ Usando modelo de canciones globales - playlist ya filtrada por canal');
       
       // Todas las canciones de la playlist son válidas (playlist.canal_id ya las filtra)
+      // 🔧 FIX: Normalizar formato - las canciones pueden venir de RPC (plano) o fallback (anidado)
       const filteredSongs = songs.filter(song => {
-        // Solo verificaciones básicas de integridad
-        const hasValidData = song?.canciones?.titulo && song?.canciones?.url_s3;
+        // Normalizar: song puede ser {titulo, url_s3} (RPC) o {canciones: {titulo, url_s3}} (fallback)
+        const songData = song?.canciones || song;
+        const hasValidData = songData?.titulo && songData?.url_s3;
         
         if (!hasValidData) {
           logger.warn('🚫 Canción filtrada (datos incompletos):', {
-            songTitle: song?.canciones?.titulo || 'Sin título',
-            hasUrl: !!song?.canciones?.url_s3,
-            hasTitle: !!song?.canciones?.titulo
+            songTitle: songData?.titulo || 'Sin título',
+            hasUrl: !!songData?.url_s3,
+            hasTitle: !!songData?.titulo
           });
         }
         
@@ -2158,18 +2165,19 @@ class AutoDjService {
           playlistId: randomPlaylist.id
         });
         
-        // Cargar canciones de esa playlist
-        const songs = await songsApi.getPlaylistSongs(randomPlaylist.id);
+        // Cargar canciones de esa playlist (pasando canalId para usar cache de RPC)
+        const songs = await songsApi.getPlaylistSongs(randomPlaylist.id, this.currentChannelId);
         if (songs && songs.length > 0) {
           // ✅ NUEVO MODELO: Canciones globales, no filtrar por canal_id
+          // 🔧 FIX: Normalizar formato - las canciones pueden venir de RPC (plano) o fallback (anidado)
           const filteredSongs = songs.filter(song => {
-            // Solo verificaciones básicas de integridad
-            const hasValidData = song?.canciones?.titulo && song?.canciones?.url_s3;
+            const songData = song?.canciones || song;
+            const hasValidData = songData?.titulo && songData?.url_s3;
             
             if (!hasValidData) {
               logger.warn('🚫 peekNextSong - Canción filtrada (datos incompletos):', {
-                songTitle: song?.canciones?.titulo || 'Sin título',
-                hasUrl: !!song?.canciones?.url_s3
+                songTitle: songData?.titulo || 'Sin título',
+                hasUrl: !!songData?.url_s3
               });
             }
             
@@ -2500,8 +2508,8 @@ class AutoDjService {
     try {
       logger.dev('📅 Seleccionando canción de playlist agendada para interrupción:', playlist.nombre);
       
-      // Cargar canciones de la playlist
-      const songs = await songsApi.getPlaylistSongs(playlist.id);
+      // Cargar canciones de la playlist (pasando canalId para usar cache de RPC)
+      const songs = await songsApi.getPlaylistSongs(playlist.id, this.currentChannelId);
       
       if (!songs || songs.length === 0) {
         logger.warn('⚠️ Playlist agendada vacía:', playlist.nombre);
@@ -2509,10 +2517,10 @@ class AutoDjService {
       }
       
       // ✅ NUEVO MODELO: Todas las canciones de la playlist son válidas
-      // La playlist ya está filtrada por canal_id, no es necesario filtrar canciones
+      // 🔧 FIX: Normalizar formato - las canciones pueden venir de RPC (plano) o fallback (anidado)
       const filteredSongs = songs.filter(song => {
-        // Solo verificar integridad de datos
-        return song?.canciones?.titulo && song?.canciones?.url_s3;
+        const songData = song?.canciones || song;
+        return songData?.titulo && songData?.url_s3;
       });
       
       if (filteredSongs.length === 0) {

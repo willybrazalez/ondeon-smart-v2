@@ -5,14 +5,14 @@ import { motion } from 'framer-motion';
 import { 
   Home, 
   Radio, 
+  BookOpen,
   PlusCircle, 
-  History, 
-  User 
+  History
 } from 'lucide-react';
 
 /**
- * Navegación inferior estilo app mobile
- * Diseño minimalista con iconos y etiquetas
+ * Navegación inferior moderna estilo iOS/Spotify
+ * Diseño glassmorphism con animaciones fluidas
  */
 const BottomNavigation = ({ className = '' }) => {
   const { t } = useTranslation();
@@ -23,100 +23,114 @@ const BottomNavigation = ({ className = '' }) => {
     { 
       path: '/', 
       icon: Home, 
-      label: t('nav.player', 'Player'),
-      activeColor: '#A2D9F7'
+      label: t('nav.player', 'Inicio')
     },
     { 
       path: '/canales', 
       icon: Radio, 
-      label: t('nav.channels', 'Canales'),
-      activeColor: '#A2D9F7'
+      label: t('nav.channels', 'Canales')
     },
     { 
       path: '/anuncio-nuevo', 
       icon: PlusCircle, 
-      label: t('nav.createAd', 'Nuevo'),
-      activeColor: '#4ADE80',
+      label: t('nav.createAd', 'Crear Anuncio'),
       isAction: true
+    },
+    { 
+      path: '/contenidos', 
+      icon: BookOpen, 
+      label: t('nav.contents', 'Contenidos')
     },
     { 
       path: '/historial-anuncios', 
       icon: History, 
-      label: t('nav.history', 'Historial'),
-      activeColor: '#A2D9F7'
-    },
-    { 
-      path: '/gestor', 
-      icon: User, 
-      label: t('nav.myAccount', 'Cuenta'),
-      activeColor: '#A2D9F7'
+      label: t('nav.history', 'Historial')
     },
   ];
 
   return (
     <nav className={`
       fixed bottom-0 left-0 right-0 z-50
-      bg-background/95 backdrop-blur-xl
-      border-t border-white/10 dark:border-white/5
-      px-2 pb-safe
       ${className}
     `}>
-      <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
+      {/* Fondo con glassmorphism */}
+      <div className="absolute inset-0 bg-[#0d1117]/90 backdrop-blur-2xl border-t border-white/[0.06]" />
+      
+      <div className="relative flex items-end justify-around h-[70px] max-w-md mx-auto px-1 pb-safe">
         {navItems.map((item) => {
           const isActive = currentPath === item.path;
           const Icon = item.icon;
+          
+          // Botón de acción central (Crear Anuncio)
+          if (item.isAction) {
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className="relative flex flex-col items-center -mt-3"
+              >
+                <motion.div
+                  whileTap={{ scale: 0.95 }}
+                  className="relative"
+                >
+                  {/* Botón principal - azul más suave */}
+                  <div className={`
+                    relative w-12 h-12 rounded-full 
+                    bg-gradient-to-br from-[#6BA8C7] via-[#5A9AB8] to-[#4A8BA9]
+                    shadow-lg shadow-[#5A9AB8]/20
+                    flex items-center justify-center
+                    border border-white/10
+                  `}>
+                    <Icon 
+                      size={22}
+                      className="text-white"
+                      strokeWidth={2}
+                    />
+                  </div>
+                </motion.div>
+                
+                {/* Etiqueta alineada */}
+                <span className="text-[9px] text-center mt-1.5 text-[#6BA8C7] font-medium whitespace-nowrap">
+                  {item.label}
+                </span>
+              </Link>
+            );
+          }
           
           return (
             <Link
               key={item.path}
               to={item.path}
-              className={`
-                relative flex flex-col items-center justify-center
-                min-w-[56px] h-full px-3 py-2
-                transition-all duration-200
-                ${item.isAction ? 'scale-110' : ''}
-              `}
+              className="relative flex flex-col items-center justify-end min-w-[60px] pb-2"
             >
-              {/* Indicador activo */}
-              {isActive && (
-                <motion.div
-                  layoutId="activeTab"
-                  className="absolute inset-x-2 top-0 h-0.5 rounded-full"
-                  style={{ backgroundColor: item.activeColor }}
-                  transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                />
-              )}
-              
-              {/* Icono con fondo para acción principal */}
-              <div className={`
-                relative flex items-center justify-center
-                ${item.isAction 
-                  ? 'w-12 h-12 -mt-6 rounded-full bg-gradient-to-br from-[#A2D9F7] to-[#7BC4E0] shadow-lg shadow-[#A2D9F7]/30' 
-                  : 'w-8 h-8'}
-              `}>
+              {/* Contenedor del icono */}
+              <motion.div
+                animate={{ 
+                  scale: isActive ? 1.1 : 1,
+                  y: isActive ? -2 : 0
+                }}
+                transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                className="relative"
+              >
                 <Icon 
-                  size={item.isAction ? 24 : 22}
+                  size={22}
                   className={`
-                    transition-all duration-200
-                    ${item.isAction 
-                      ? 'text-[#0a0e14]' 
-                      : isActive 
-                        ? 'text-[#A2D9F7]' 
-                        : 'text-foreground/50'}
+                    transition-colors duration-200
+                    ${isActive 
+                      ? 'text-[#A2D9F7]' 
+                      : 'text-white/40'}
                   `}
-                  strokeWidth={isActive || item.isAction ? 2.5 : 2}
+                  strokeWidth={isActive ? 2.5 : 2}
                 />
-              </div>
+              </motion.div>
               
               {/* Etiqueta */}
               <span className={`
                 text-[10px] mt-1 font-medium tracking-wide
-                transition-all duration-200
-                ${item.isAction 
-                  ? 'text-[#A2D9F7] mt-2' 
-                  : isActive 
-                    ? 'text-[#A2D9F7]' 
-                    : 'text-foreground/40'}
+                transition-colors duration-200
+                ${isActive 
+                  ? 'text-[#A2D9F7]' 
+                  : 'text-white/40'}
               `}>
                 {item.label}
               </span>

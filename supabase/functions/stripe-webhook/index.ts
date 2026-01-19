@@ -5,9 +5,12 @@
  * 
  * Eventos manejados:
  * - checkout.session.completed: Usuario completó el checkout
+ * - checkout.session.expired: Checkout expiró sin completarse
+ * - customer.deleted: Cliente eliminado de Stripe
  * - customer.subscription.created: Suscripción creada
  * - customer.subscription.updated: Suscripción actualizada (trial→active, etc.)
  * - customer.subscription.deleted: Suscripción cancelada
+ * - customer.subscription.trial_will_end: Trial termina en 3 días
  * - invoice.payment_succeeded: Pago exitoso
  * - invoice.payment_failed: Pago fallido
  * 
@@ -128,6 +131,18 @@ serve(async (req) => {
         break
       }
 
+      case 'checkout.session.expired': {
+        const session = event.data.object as Stripe.Checkout.Session
+        await handleCheckoutExpired(supabase, session)
+        break
+      }
+
+      case 'customer.deleted': {
+        const customer = event.data.object as Stripe.Customer
+        await handleCustomerDeleted(supabase, customer)
+        break
+      }
+
       case 'customer.subscription.created': {
         const subscription = event.data.object as Stripe.Subscription
         await handleSubscriptionCreated(supabase, subscription)
@@ -143,6 +158,12 @@ serve(async (req) => {
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription
         await handleSubscriptionDeleted(supabase, subscription)
+        break
+      }
+
+      case 'customer.subscription.trial_will_end': {
+        const subscription = event.data.object as Stripe.Subscription
+        await handleTrialWillEnd(supabase, stripe, subscription)
         break
       }
 
@@ -618,5 +639,141 @@ async function handlePaymentFailed(supabase: any, invoice: Stripe.Invoice) {
         console.log('Email payment_failed enviado a:', userEmail)
       }
     }
+  }
+}
+
+/**
+ * Maneja checkout.session.expired
+ * - Limpia registro_pendiente si existe
+ * - Log para analytics
+ */
+async function handleCheckoutExpired(supabase: any, session: Stripe.Checkout.Session) {
+  console.log('🕐 Checkout expired:', session.id)
+
+  const authUserId = session.metadata?.auth_user_id
+  if (authUserId) {
+    // Marcar registro_pendiente como expirado
+    await supabase
+      .from('registros_pendientes')
+      .update({ 
+        estado: 'expirado',
+        updated_at: new Date().toISOString()
+      })
+      .eq('auth_user_id', authUserId)
+      .eq('estado', 'pendiente')
+
+    console.log('📋 Registro pendiente marcado como expirado para:', authUserId)
+  }
+}
+
+/**
+ * Maneja customer.deleted
+ * - Elimina suscripciones y datos relacionados del cliente
+ * - Resetea registro_completo del usuario
+ */
+async function handleCustomerDeleted(supabase: any, customer: Stripe.Customer) {
+  console.log('🗑️ Customer deleted:', customer.id)
+
+  // Buscar suscripciones con este stripe_customer_id
+  const { data: suscripciones } = await supabase
+    .from('suscripciones')
+    .select('id, usuario_id')
+    .eq('stripe_customer_id', customer.id)
+
+  if (suscripciones && suscripciones.length > 0) {
+    for (const suscripcion of suscripciones) {
+      // Eliminar historial de pagos
+      await supabase
+        .from('historial_pagos')
+        .delete()
+        .eq('suscripcion_id', suscripcion.id)
+
+      // Eliminar suscripción
+      await supabase
+        .from('suscripciones')
+        .delete()
+        .eq('id', suscripcion.id)
+
+      // Resetear registro_completo del usuario
+      if (suscripcion.usuario_id) {
+        await supabase
+          .from('usuarios')
+          .update({ 
+            registro_completo: false,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', suscripcion.usuario_id)
+
+        console.log('👤 Usuario reseteado (registro_completo=false):', suscripcion.usuario_id)
+      }
+    }
+
+    console.log(`✅ Eliminadas ${suscripciones.length} suscripciones del customer:`, customer.id)
+  } else {
+    console.log('ℹ️ No se encontraron suscripciones para el customer:', customer.id)
+  }
+
+  // Limpiar registros pendientes si existen
+  const customerEmail = customer.email
+  if (customerEmail) {
+    await supabase
+      .from('registros_pendientes')
+      .delete()
+      .eq('email', customerEmail)
+  }
+}
+
+/**
+ * Maneja customer.subscription.trial_will_end
+ * - Enviado 3 días antes de que termine el trial
+ * - Envia email recordatorio
+ */
+async function handleTrialWillEnd(supabase: any, stripe: Stripe, subscription: Stripe.Subscription) {
+  console.log('⏰ Trial will end in 3 days:', subscription.id)
+
+  // Obtener suscripción de nuestra BD
+  const { data: suscripcion } = await supabase
+    .from('suscripciones')
+    .select('id, usuario_id, plan_nombre, precio_mensual, moneda')
+    .eq('stripe_subscription_id', subscription.id)
+    .single()
+
+  if (!suscripcion) {
+    console.log('Suscripcion no encontrada:', subscription.id)
+    return
+  }
+
+  // Obtener usuario
+  const { data: usuario } = await supabase
+    .from('usuarios')
+    .select('auth_user_id, nombre')
+    .eq('id', suscripcion.usuario_id)
+    .single()
+
+  if (!usuario?.auth_user_id) {
+    console.log('Usuario no encontrado:', suscripcion.usuario_id)
+    return
+  }
+
+  // Obtener email del usuario
+  const { data: authUser } = await supabase.auth.admin.getUserById(usuario.auth_user_id)
+  const userEmail = authUser?.user?.email
+
+  if (userEmail) {
+    const trialEndDate = subscription.trial_end 
+      ? formatDate(new Date(subscription.trial_end * 1000))
+      : 'pronto'
+
+    const precio = suscripcion.precio_mensual || 0
+    const moneda = (suscripcion.moneda || 'eur').toUpperCase()
+
+    await sendEmail('trial_ending', userEmail, {
+      nombre: usuario.nombre || 'Usuario',
+      plan_nombre: suscripcion.plan_nombre || 'Ondeón Pro',
+      trial_end_date: trialEndDate,
+      precio: `${precio}${moneda}`,
+    })
+
+    console.log('📧 Email trial_ending enviado a:', userEmail)
   }
 }

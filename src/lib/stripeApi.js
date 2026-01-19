@@ -1,16 +1,24 @@
 /**
  * API de Stripe para Frontend
  * 
+ * ⚠️ MODO: TEST (Stripe Test Mode)
+ * 
  * SEGURIDAD:
- * - Este archivo SOLO usa la PUBLISHABLE KEY (pk_live_xxx)
+ * - Este archivo SOLO usa la PUBLISHABLE KEY (pk_test_xxx)
  * - Las operaciones sensibles se hacen via Edge Functions
- * - NUNCA se exponen claves secretas (sk_live_xxx) en frontend
+ * - NUNCA se exponen claves secretas (sk_test_xxx) en frontend
+ * 
+ * PARA PRODUCCIÓN:
+ * - Cambiar pk_test_xxx por pk_live_xxx en .env
+ * - Cambiar sk_test_xxx por sk_live_xxx en Supabase secrets
+ * - Actualizar STRIPE_PRICES con los Price IDs de producción
+ * - Crear nuevo webhook endpoint en Stripe Live Mode
  */
 
 import { loadStripe } from '@stripe/stripe-js'
 import logger from './logger'
 
-// Cargar Stripe.js con la publishable key (es pública y segura)
+// 🔧 TEST MODE: Cargar Stripe.js con la publishable key de prueba
 const STRIPE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
 
 // Solo cargar Stripe si la key está configurada
@@ -24,21 +32,24 @@ const EDGE_FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1'
 // Anon key para autenticar las llamadas a Edge Functions
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-// Price IDs de Stripe (TEST)
+// 🔧 TEST MODE: Price IDs de Stripe (entorno de pruebas)
+// ⚠️ Cambiar por Price IDs de producción antes de lanzar
 export const STRIPE_PRICES = {
   basico: {
-    mensual: 'price_1Sojx8P5ynRjXl9TaOrZwRzq',
-    anual: 'price_1Sojx8P5ynRjXl9TrpTLcHiu',
+    mensual: 'price_1Sr57jP5ynRjXl9Tv4wCtIKc',  // TEST - €10/mes
+    anual: 'price_1Sr57tP5ynRjXl9T4gchtSmT',    // TEST - €96/año
     nombre: 'Ondeón Básico',
-    precioMensual: 23,
-    precioAnual: 216, // €18/mes
+    precioMensual: 10,
+    precioAnual: 96,      // €8/mes equivalente (~20% descuento)
+    precioMensualAnual: 8, // Precio mensual cuando se paga anualmente
   },
   pro: {
-    mensual: 'price_1Sojx8P5ynRjXl9TMzFI4Rk5',
-    anual: 'price_1Sojx8P5ynRjXl9TvDcxGyqy',
+    mensual: 'price_1Sr583P5ynRjXl9TWcSnhKiD',  // TEST - €18/mes
+    anual: 'price_1Sr583P5ynRjXl9Tc2qdU3eL',    // TEST - €168/año
     nombre: 'Ondeón Pro',
-    precioMensual: 28,
-    precioAnual: 276, // €23/mes
+    precioMensual: 18,
+    precioAnual: 168,     // €14/mes equivalente (~22% descuento)
+    precioMensualAnual: 14, // Precio mensual cuando se paga anualmente
   }
 }
 
@@ -78,14 +89,15 @@ export const stripeApi = {
     telefono, 
     nombre_negocio,
     success_url,
-    cancel_url 
+    cancel_url,
+    access_token // Token JWT del usuario autenticado
   }) {
     try {
       logger.dev('💳 Creando sesión de checkout...', { price_id, plan_nombre })
 
       const response = await fetch(`${EDGE_FUNCTIONS_URL}/stripe-checkout`, {
         method: 'POST',
-        headers: getHeaders(),
+        headers: getHeaders(access_token),
         body: JSON.stringify({
           auth_user_id,
           email,

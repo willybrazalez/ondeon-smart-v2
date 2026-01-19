@@ -4,31 +4,8 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --background: 0 0% 94%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 96%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 96%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 202 84% 85%;
-    --primary-foreground: 210 40% 95%;
-    --secondary: 210 40% 92%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 92%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 88%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 95%;
-    --border: 214.3 31.8% 88%;
-    --input: 214.3 31.8% 91%;
-    --ring: 202 84% 85%;
-    --radius: 0.5rem;
-    --radius-sm: 0.3rem;
-    --radius-lg: 0.8rem;
-  }
-
+  /* Solo modo oscuro - tema único Ondeon */
+  :root,
   .dark {
     --background: 240 6% 10%;
     --foreground: 0 0% 98%;
@@ -49,6 +26,9 @@
     --border: 0 0% 20%;
     --input: 0 0% 20%;
     --ring: 0 0% 80%;
+    --radius: 0.5rem;
+    --radius-sm: 0.3rem;
+    --radius-lg: 0.8rem;
   }
 }
 
@@ -64,6 +44,11 @@
     margin: 0;
     padding: 0;
     overflow-x: hidden; 
+  }
+  /* Eliminar bordes de imágenes */
+  img {
+    border: none !important;
+    outline: none !important;
   }
 }
 
@@ -446,4 +431,120 @@
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
+}
+
+/* ======================================
+   MEJORAS DISEÑO MÓVIL MODERNO
+   ====================================== */
+
+/* Animación marquee para textos largos */
+@keyframes marquee-slow {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee-slow {
+  animation: marquee-slow 15s linear infinite;
+}
+
+/* Glassmorphism refinado */
+.glass-morphism {
+  background: rgba(13, 17, 23, 0.8);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Glow effects */
+.glow-primary {
+  box-shadow: 0 0 40px rgba(162, 217, 247, 0.2);
+}
+
+.glow-primary-strong {
+  box-shadow: 0 0 60px rgba(162, 217, 247, 0.3), 0 0 100px rgba(162, 217, 247, 0.15);
+}
+
+/* Animación de pulso suave para indicadores */
+@keyframes soft-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+
+.animate-soft-pulse {
+  animation: soft-pulse 2s ease-in-out infinite;
+}
+
+/* Mejoras táctiles - feedback visual */
+@media (hover: none) and (pointer: coarse) {
+  .touch-feedback {
+    transition: transform 0.1s ease-out, background-color 0.1s ease-out;
+  }
+  
+  .touch-feedback:active {
+    transform: scale(0.95);
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Bordes suaves con gradiente */
+.border-gradient {
+  position: relative;
+}
+
+.border-gradient::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(162, 217, 247, 0.3), transparent 50%, rgba(162, 217, 247, 0.1));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Texto con gradiente Ondeon */
+.text-gradient-ondeon {
+  background: linear-gradient(135deg, #A2D9F7, #7BC4E0, #A2D9F7);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Sombra interior sutil */
+.inner-shadow {
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2), inset 0 -1px 2px rgba(255, 255, 255, 0.05);
+}
+
+/* Efecto hover para cards en móvil */
+@media (max-width: 768px) {
+  .card-hover-mobile:active {
+    transform: scale(0.98);
+    transition: transform 0.1s ease-out;
+  }
+}
+
+/* Ocultar scrollbar pero mantener funcionalidad */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Snap scroll suave */
+.snap-x {
+  scroll-snap-type: x mandatory;
+}
+
+.snap-start {
+  scroll-snap-align: start;
+}
+
+.snap-mandatory {
+  scroll-snap-type: x mandatory;
 }

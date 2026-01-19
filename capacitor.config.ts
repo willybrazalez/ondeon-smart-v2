@@ -5,22 +5,27 @@ const config: CapacitorConfig = {
   appName: 'Ondeon Smart',
   webDir: 'dist',
   server: {
-    // Para desarrollo local, descomentar:
-    // url: 'http://localhost:5173',
-    // cleartext: true,
+    // LIVE RELOAD ACTIVADO - Comentar para producción
+    url: 'http://localhost:5173',
+    cleartext: true,
     androidScheme: 'https'
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 2000,
+      launchShowDuration: 3000,
+      launchAutoHide: true,
       backgroundColor: '#0a0e14',
-      showSpinner: false,
+      showSpinner: true,
+      spinnerColor: '#A2D9F7',
+      spinnerStyle: 'small',
       androidScaleType: 'CENTER_CROP',
       splashFullScreen: true,
-      splashImmersive: true
+      splashImmersive: true,
+      // iOS específico
+      iosSpinnerStyle: 'small',
     },
     StatusBar: {
-      style: 'DARK',
+      style: 'Dark',
       backgroundColor: '#0a0e14'
     },
     Keyboard: {
@@ -31,7 +36,10 @@ const config: CapacitorConfig = {
   ios: {
     contentInset: 'automatic',
     preferredContentMode: 'mobile',
-    scheme: 'Ondeon Smart'
+    scheme: 'ondeon-smart',
+    backgroundColor: '#0a0e14',
+    // WebView con fondo oscuro
+    webContentsDebuggingEnabled: true
   },
   android: {
     backgroundColor: '#0a0e14',

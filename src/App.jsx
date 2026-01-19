@@ -25,8 +25,10 @@ import {
 import { Toaster } from './components/ui/toaster';
 import PlayerPage from '@/pages/PlayerPage';
 import ChannelsPage from '@/pages/ChannelsPage';
+import ContentsPage from '@/pages/ContentsPage';
 import NewAdPage from '@/pages/NewAdPage';
 import AdHistoryPage from '@/pages/AdHistoryPage';
+import AccountPage from '@/pages/AccountPage';
 import RegisterPage from './pages/RegisterPage';
 import GestorDashboard from './pages/gestor/GestorDashboard';
 // ✅ ELIMINADO: OAuth ahora usa servidor HTTP local en Electron
@@ -38,8 +40,7 @@ import DynamicBackground from '@/components/layout/DynamicBackground';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
-import ThemeToggle from '@/components/ThemeToggle';
-import { useTheme } from '@/contexts/ThemeContext';
+// Tema oscuro único - ThemeToggle eliminado
 // Componentes de desktop eliminados
 import { useRole } from '@/hooks/useRole';
 import { PermissionGated } from '@/components/RoleProtectedRoute';
@@ -69,12 +70,13 @@ const getNavItemsForRole = (hasPermission, t) => {
   return [
     { path: '/', label: t('nav.player'), icon: HomeIcon, permission: 'canAccessPlayer' },
     { path: '/canales', label: t('nav.channels'), icon: Radio, permission: 'canAccessChannels' },
+    { path: '/contenidos', label: t('nav.contents', 'Contenidos'), icon: BookOpen, permission: 'canAccessHistory' },
     { path: '/historial-anuncios', label: t('nav.history'), icon: HistoryIcon, permission: 'canAccessHistory' },
     { path: '/anuncio-nuevo', label: t('nav.createAd'), icon: PlusCircle, permission: 'canCreateImmediateAds' },
   ].filter(item => !item.permission || hasPermission(item.permission));
 };
 
-// Componente PlayerControls mejorado con AutoDJ
+// Componente PlayerControls mejorado - Diseño moderno móvil
 const PlayerControls = ({ 
   currentTrackInfo, 
   onPrevChannel, 
@@ -85,43 +87,32 @@ const PlayerControls = ({
   isPlayingScheduledContent = false
 }) => {
   const { t } = useTranslation();
-  // 🔒 Obtener estado de reproducción manual para bloquear controles
   const { isManualPlaybackActive, manualPlaybackInfo } = useAuth();
   const isBlocked = isPlayingScheduledContent || isManualPlaybackActive;
   const blockMessage = isManualPlaybackActive 
     ? `${t('player.manualPlayback')}: ${manualPlaybackInfo?.contentName || t('player.content')}`
     : isPlayingScheduledContent ? t('player.scheduledContentPlaying') : undefined;
   
-  // 🔧 Mostrar "Contenido" cuando hay contenido programado o manual reproduciéndose
   const displayTitle = (isPlayingScheduledContent || isManualPlaybackActive) ? t('player.content') : currentTrackInfo.title;
   const displayArtist = (isPlayingScheduledContent || isManualPlaybackActive) ? t('player.content') : currentTrackInfo.artist;
 
-  // 🎨 Referencias y estado para efecto marquee
   const titleRef = React.useRef(null);
   const artistRef = React.useRef(null);
   const [titleNeedsScroll, setTitleNeedsScroll] = React.useState(false);
   const [artistNeedsScroll, setArtistNeedsScroll] = React.useState(false);
 
-  // 🔍 Verificar si los textos necesitan scroll
   React.useEffect(() => {
-    // Pequeño delay para asegurar que el DOM está renderizado
     const checkOverflow = () => {
       if (titleRef.current) {
         const element = titleRef.current;
         const parent = element.parentElement;
-        
-        // Forzar inline-block temporalmente para obtener el ancho real del texto
         const originalDisplay = element.style.display;
         element.style.display = 'inline-block';
         element.style.width = 'auto';
-        
         const textWidth = element.scrollWidth;
         const containerWidth = parent?.clientWidth || 0;
-        const needsScroll = textWidth > containerWidth - 32; // -32px por el padding
-        
-        // Restaurar display
+        const needsScroll = textWidth > containerWidth - 32;
         element.style.display = originalDisplay;
-        
         setTitleNeedsScroll(needsScroll);
         logger.dev(`🎨 Título necesita scroll: ${needsScroll} (texto: ${textWidth}px, contenedor: ${containerWidth - 32}px)`);
       }
@@ -129,159 +120,173 @@ const PlayerControls = ({
       if (artistRef.current) {
         const element = artistRef.current;
         const parent = element.parentElement;
-        
-        // Forzar inline-block temporalmente para obtener el ancho real del texto
         const originalDisplay = element.style.display;
         element.style.display = 'inline-block';
         element.style.width = 'auto';
-        
         const textWidth = element.scrollWidth;
         const containerWidth = parent?.clientWidth || 0;
-        const needsScroll = textWidth > containerWidth - 32; // -32px por el padding
-        
-        // Restaurar display
+        const needsScroll = textWidth > containerWidth - 32;
         element.style.display = originalDisplay;
-        
         setArtistNeedsScroll(needsScroll);
         logger.dev(`🎨 Artista necesita scroll: ${needsScroll} (texto: ${textWidth}px, contenedor: ${containerWidth - 32}px)`);
       }
     };
-
-    // Ejecutar después de que el DOM se actualice
     const timeoutId = setTimeout(checkOverflow, 100);
-    
     return () => clearTimeout(timeoutId);
   }, [displayTitle, displayArtist]);
 
   return (
     <>
-      {/* Información de la canción y controles - Adaptado para móvil */}
-      <div className="fixed left-1/2 top-[15%] md:top-[20%] -translate-x-1/2 z-30 flex flex-col items-center gap-3 md:gap-4 w-full max-w-md px-4">
-        {/* Control de canal con imagen */}
-        <div className="flex items-center gap-2 md:gap-3 mb-2 md:mb-4">
-          <motion.button
-            onClick={onPrevChannel}
-            whileHover={isBlocked ? {} : { scale: 1.1 }}
-            whileTap={isBlocked ? {} : { scale: 0.95 }}
-            disabled={isBlocked}
-            title={blockMessage || t('player.previousChannel')}
-            className={`w-11 h-11 md:w-10 md:h-10 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/5 backdrop-blur-lg
-                      active:bg-black/20 dark:active:bg-white/20 md:hover:bg-black/10 md:dark:hover:bg-white/10 transition-all duration-200
-                      shadow-[0_0_15px_rgba(162,217,247,0.2)] dark:shadow-[0_0_15px_rgba(255,255,255,0.1)]
-                      ${isBlocked ? 'opacity-30 cursor-not-allowed' : ''}`}
-          >
-            <ChevronLeft className="w-6 h-6 text-black/70 dark:text-white/70" />
-          </motion.button>
-
-          {/* Imagen y nombre del canal */}
-          <motion.div 
-            className="flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 rounded-full bg-black/5 dark:bg-white/5 backdrop-blur-lg
-                      shadow-[0_0_20px_rgba(162,217,247,0.2)] dark:shadow-[0_0_20px_rgba(255,255,255,0.1)]"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.3 }}
-          >
-            {channelImage && (
-              <img 
-                src={channelImage} 
-                alt={channelName}
-                className="w-7 h-7 md:w-8 md:h-8 rounded-full object-cover shadow-md"
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                }}
-              />
-            )}
-            <span className="text-xs md:text-sm font-sans font-light tracking-wider text-black/80 dark:text-white/80 max-w-[120px] md:max-w-none truncate">
-              {channelName || t('player.loading')}
-            </span>
-          </motion.div>
-
-          <motion.button
-            onClick={onNextChannel}
-            whileHover={isBlocked ? {} : { scale: 1.1 }}
-            whileTap={isBlocked ? {} : { scale: 0.95 }}
-            disabled={isBlocked}
-            title={blockMessage || t('player.nextChannel')}
-            className={`w-11 h-11 md:w-10 md:h-10 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/5 backdrop-blur-lg
-                      active:bg-black/20 dark:active:bg-white/20 md:hover:bg-black/10 md:dark:hover:bg-white/10 transition-all duration-200
-                      shadow-[0_0_15px_rgba(162,217,247,0.2)] dark:shadow-[0_0_15px_rgba(255,255,255,0.1)]
-                      ${isBlocked ? 'opacity-30 cursor-not-allowed' : ''}`}
-          >
-            <ChevronRight className="w-6 h-6 text-black/70 dark:text-white/70" />
-          </motion.button>
-        </div>
-
-        {/* Título de la canción con efecto marquee */}
-        <div className="overflow-hidden w-full px-2 md:px-4">
-          {titleNeedsScroll ? (
-            <div className="flex animate-marquee-slow hover:animation-paused">
-        <motion.h1 
-                ref={titleRef}
-          key={`title-${displayTitle}`}
+      {/* Contenedor principal - posición adaptativa móvil/desktop */}
+      <div className="fixed left-1/2 top-[18%] md:top-[20%] -translate-x-1/2 z-30 flex flex-col items-center gap-4 md:gap-4 w-full max-w-md px-6">
+        
+        {/* Selector de canal - Diseño card moderno */}
+        <motion.div 
+          className="w-full"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-                className="text-xl md:text-2xl font-sans font-light tracking-wide text-black/90 dark:text-white/90 whitespace-nowrap pr-12"
+          transition={{ duration: 0.4 }}
         >
-          {displayTitle}
-        </motion.h1>
+          <div className="relative flex items-center justify-center gap-3">
+            {/* Botón anterior */}
+            <motion.button
+              onClick={onPrevChannel}
+              whileTap={isBlocked ? {} : { scale: 0.9 }}
+              disabled={isBlocked}
+              title={blockMessage || t('player.previousChannel')}
+              className={`w-12 h-12 rounded-2xl flex items-center justify-center 
+                        bg-white/[0.06] border border-white/[0.08] backdrop-blur-xl
+                        active:bg-white/[0.12] transition-all duration-200
+                        ${isBlocked ? 'opacity-30 cursor-not-allowed' : ''}`}
+            >
+              <ChevronLeft className="w-6 h-6 text-white/70" />
+            </motion.button>
+
+            {/* Card del canal */}
+            <motion.div 
+              className="flex-1 max-w-[200px] flex items-center gap-3 px-4 py-3 rounded-2xl 
+                        bg-white/[0.06] border border-white/[0.08] backdrop-blur-xl"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.3, delay: 0.1 }}
+            >
+              {/* Avatar del canal */}
+              <div className="relative flex-shrink-0">
+                {channelImage ? (
+                  <img 
+                    src={channelImage} 
+                    alt={channelName}
+                    className="w-10 h-10 rounded-xl object-cover ring-2 ring-[#A2D9F7]/30"
+                    onError={(e) => { e.target.style.display = 'none'; }}
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#A2D9F7]/30 to-[#A2D9F7]/10 flex items-center justify-center">
+                    <Radio className="w-5 h-5 text-[#A2D9F7]/70" />
+                  </div>
+                )}
+                {/* Indicador de reproducción */}
+                <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#0a0e14]" />
+              </div>
+              
+              {/* Info del canal */}
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-[#A2D9F7]/70 font-medium uppercase tracking-wider">Canal</p>
+                <p className="text-sm text-white font-medium truncate">
+                  {channelName || t('player.loading')}
+                </p>
+              </div>
+            </motion.div>
+
+            {/* Botón siguiente */}
+            <motion.button
+              onClick={onNextChannel}
+              whileTap={isBlocked ? {} : { scale: 0.9 }}
+              disabled={isBlocked}
+              title={blockMessage || t('player.nextChannel')}
+              className={`w-12 h-12 rounded-2xl flex items-center justify-center 
+                        bg-white/[0.06] border border-white/[0.08] backdrop-blur-xl
+                        active:bg-white/[0.12] transition-all duration-200
+                        ${isBlocked ? 'opacity-30 cursor-not-allowed' : ''}`}
+            >
+              <ChevronRight className="w-6 h-6 text-white/70" />
+            </motion.button>
+          </div>
+        </motion.div>
+
+        {/* Información de la canción - Tipografía elegante */}
+        <div className="w-full text-center mt-2">
+          {/* Título */}
+          <div className="overflow-hidden w-full">
+            {titleNeedsScroll ? (
+              <div className="flex animate-marquee-slow hover:animation-paused">
+                <motion.h1 
+                  ref={titleRef}
+                  key={`title-${displayTitle}`}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-2xl md:text-2xl font-semibold text-white whitespace-nowrap pr-12"
+                >
+                  {displayTitle}
+                </motion.h1>
+                <motion.h1 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-2xl md:text-2xl font-semibold text-white whitespace-nowrap pr-12"
+                >
+                  {displayTitle}
+                </motion.h1>
+              </div>
+            ) : (
               <motion.h1 
-                initial={{ opacity: 0, y: -20 }}
+                ref={titleRef}
+                key={`title-${displayTitle}`}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="text-xl md:text-2xl font-sans font-light tracking-wide text-black/90 dark:text-white/90 whitespace-nowrap pr-12"
+                transition={{ delay: 0.2 }}
+                className="text-2xl md:text-2xl font-semibold text-white truncate"
               >
                 {displayTitle}
               </motion.h1>
-            </div>
-          ) : (
-            <motion.h1 
-              ref={titleRef}
-              key={`title-${displayTitle}`}
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-xl md:text-2xl font-sans font-light tracking-wide text-black/90 dark:text-white/90 text-center truncate"
-            >
-              {displayTitle}
-            </motion.h1>
-          )}
-        </div>
-        
-        {/* Artista con efecto marquee */}
-        <div className="overflow-hidden w-full px-2 md:px-4">
-          {artistNeedsScroll ? (
-            <div className="flex animate-marquee-slow hover:animation-paused">
-        <motion.h2 
-                ref={artistRef}
-          key={`artist-${displayArtist}`}
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-                className="text-base md:text-lg font-sans font-extralight tracking-wider text-black/70 dark:text-white/70 whitespace-nowrap pr-12"
-        >
-          {displayArtist}
-        </motion.h2>
+            )}
+          </div>
+          
+          {/* Artista */}
+          <div className="overflow-hidden w-full mt-1">
+            {artistNeedsScroll ? (
+              <div className="flex animate-marquee-slow hover:animation-paused">
+                <motion.h2 
+                  ref={artistRef}
+                  key={`artist-${displayArtist}`}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.1 }}
+                  className="text-base text-white/50 font-light whitespace-nowrap pr-12"
+                >
+                  {displayArtist}
+                </motion.h2>
+                <motion.h2 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.1 }}
+                  className="text-base text-white/50 font-light whitespace-nowrap pr-12"
+                >
+                  {displayArtist}
+                </motion.h2>
+              </div>
+            ) : (
               <motion.h2 
-                initial={{ opacity: 0, y: -20 }}
+                ref={artistRef}
+                key={`artist-${displayArtist}`}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="text-base md:text-lg font-sans font-extralight tracking-wider text-black/70 dark:text-white/70 whitespace-nowrap pr-12"
+                transition={{ delay: 0.3 }}
+                className="text-base text-white/50 font-light truncate"
               >
                 {displayArtist}
               </motion.h2>
-            </div>
-          ) : (
-            <motion.h2 
-              ref={artistRef}
-              key={`artist-${displayArtist}`}
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="text-base md:text-lg font-sans font-extralight tracking-wider text-black/70 dark:text-white/70 text-center truncate"
-            >
-              {displayArtist}
-            </motion.h2>
-          )}
+            )}
+          </div>
         </div>
-
       </div>
     </>
   );
@@ -388,7 +393,7 @@ function AppContent() {
   const isWebDashboardRoute = currentPath.startsWith('/gestor') || currentPath.startsWith('/admin');
   const { t } = useTranslation();
   
-  const { theme } = useTheme();
+  const theme = 'dark'; // Tema oscuro único
   const { user, loading: authLoading, userChannels, channelsLoading, signOut, ensureChannelsLoaded, loadUserActiveChannels, isManualPlaybackActive, manualPlaybackInfo, registroCompleto } = useAuth();
   const { roleName, hasPermission, uiConfig, userRole } = useRole();
   const navigate = useNavigate();
@@ -1185,42 +1190,38 @@ function AppContent() {
         />
       )}
       <div className="relative z-10 flex flex-col flex-1">
-        {/* 📱 Header - Versión móvil compacta */}
+        {/* 📱 Header - Versión móvil moderna */}
         {showHeader && showMobileUI && (
-          <header className={`fixed top-0 left-0 right-0 z-[60] safe-area-top
-            ${currentPath !== '/' 
-              ? 'bg-background/90 backdrop-blur-xl border-b border-white/5' 
-              : 'bg-transparent'}`}>
-            <div className="flex items-center justify-between h-14 px-4">
-              {/* Logo */}
+          <header className="fixed top-0 left-0 right-0 z-[60] safe-area-top">
+            {/* Fondo transparente con blur sutil */}
+            <div className="absolute inset-0 bg-transparent backdrop-blur-md" />
+            
+            <div className="relative flex items-center justify-between h-16 px-4">
+              {/* Logo grande + Smart */}
               <div className="flex items-center gap-2">
-                <img
-                  src="/assets/icono-ondeon.png"
-                  alt="Ondeón"
-                  className="h-10 w-10 drop-shadow-lg"
-                  onError={(e) => { e.target.style.display = 'none'; }}
-                />
-                <span className="text-lg tracking-[0.15em] font-light text-[#A2D9F7]">SMART</span>
+                <div className="relative">
+                  <div className="absolute inset-0 bg-[#A2D9F7]/25 rounded-full blur-2xl scale-150" />
+                  <img
+                    src="/assets/icono-ondeon.png"
+                    alt="Ondeón Smart"
+                    className="relative h-14 w-14 drop-shadow-[0_0_15px_rgba(162,217,247,0.4)]"
+                    onError={(e) => { e.target.style.display = 'none'; }}
+                  />
+                </div>
+                <span className="text-lg tracking-[0.2em] font-light text-[#A2D9F7]">SMART</span>
               </div>
               
-              {/* Acciones */}
-              <div className="flex items-center gap-1">
-                <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 mr-2">
-                  <span className="text-xs text-foreground/70 max-w-[100px] truncate">
-                    {user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email?.split('@')[0] || t('common.user')}
-                  </span>
-                  <Circle size={6} className="fill-green-500 text-green-500 flex-shrink-0" />
-                </div>
-                <ThemeToggle />
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={handleLogout}
-                  className="h-9 w-9 text-foreground/50 hover:text-red-400"
-                >
-                  <LogOut size={18} />
-                </Button>
-              </div>
+              {/* Nombre establecimiento con acceso a cuenta */}
+              <Link 
+                to="/cuenta"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.06] border border-white/[0.08] hover:bg-white/[0.1] hover:border-white/[0.12] transition-all duration-200 active:scale-95"
+              >
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+                <span className="text-sm text-white/90 font-medium">
+                  {user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email?.split('@')[0] || t('common.user')}
+                </span>
+                <ChevronRight size={16} className="text-white/40" />
+              </Link>
             </div>
           </header>
         )}
@@ -1250,10 +1251,6 @@ function AppContent() {
                   {user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email || t('common.user')}
                   <Circle size={8} className="fill-green-500 text-green-500" />
                 </span>
-
-                <div>
-                  <ThemeToggle />
-                </div>
                 
                 {/* Dashboard con efecto rainbow - Para administradores (rol_id = 3) */}
                 <PermissionGated permissions={['showAdminPanelInSettings']}>
@@ -1282,11 +1279,11 @@ function AppContent() {
           </header>
         )}
 
-        <div className={`flex-1 relative ${(isAuthRoute || !user || isAdminRoute || isWebDashboardRoute) ? 'pt-0' : showMobileUI ? 'pt-14' : 'pt-28'} ${showMobileUI && showNavigation ? 'pb-20' : ''}`}>
+        <div className={`flex-1 relative overflow-y-auto overflow-x-hidden ${(isAuthRoute || !user || isAdminRoute || isWebDashboardRoute) ? 'pt-0' : showMobileUI ? 'pt-16' : 'pt-28'} ${showMobileUI && showNavigation ? 'pb-24' : ''}`} style={{ WebkitOverflowScrolling: 'touch' }}>
           <main className={`${(isAuthRoute || !user || isAdminRoute || isWebDashboardRoute) 
             ? 'w-full mx-0 px-0 py-0 pb-0 max-w-none' 
             : showMobileUI 
-              ? 'w-full px-4 py-4' 
+              ? 'w-full px-0 py-0' 
               : 'w-full max-w-5xl mx-auto px-16 sm:px-20 md:px-24 py-6 pb-32'}`}>
             <PlayerProvider value={{ isPlaying: djState?.isPlaying || false, currentChannel: currentChannel || djState?.currentChannel, currentSong: djState?.currentSong }}>
             <Routes>
@@ -1303,8 +1300,10 @@ function AppContent() {
                       togglePlayPause={togglePlayPause} 
                     />
                   } />
+                  <Route path="/contenidos" element={<ContentsPage />} />
                   <Route path="/anuncio-nuevo" element={<NewAdPage />} />
                   <Route path="/historial-anuncios" element={<AdHistoryPage />} />
+                  <Route path="/cuenta" element={<AccountPage />} />
                   <Route path="/gestor" element={<GestorDashboard />} />
                   <Route path="/registro" element={<RegisterPage />} />
                   

@@ -2,6 +2,31 @@ import { supabase } from './supabase'
 import logger from './logger.js'
 
 // ============================================================================
+// CAPACITOR BROWSER - Para OAuth in-app
+// ============================================================================
+let CapacitorBrowser = null;
+let CapacitorApp = null;
+
+// Cargar dinámicamente el plugin de Browser cuando esté en entorno nativo
+const loadCapacitorPlugins = async () => {
+  if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
+    try {
+      const browserModule = await import('@capacitor/browser');
+      CapacitorBrowser = browserModule.Browser;
+      
+      const appModule = await import('@capacitor/core');
+      // App listener para deep links ya está manejado por Capacitor
+      logger.dev('✅ Capacitor Browser plugin cargado');
+    } catch (e) {
+      logger.warn('⚠️ No se pudo cargar Capacitor Browser:', e);
+    }
+  }
+};
+
+// Inicializar plugins
+loadCapacitorPlugins();
+
+// ============================================================================
 // ONDEON SMART v2 - API CLIENT
 // ============================================================================
 // Interfaz simplificada usando funciones RPC del nuevo esquema.
@@ -476,10 +501,29 @@ export const presenceApi = {
 
 export const authApi = {
   /**
+   * Detecta si estamos en una app nativa de Capacitor (iOS/Android)
+   */
+  isCapacitorNative() {
+    return typeof window !== 'undefined' && 
+           window.Capacitor && 
+           window.Capacitor.isNativePlatform && 
+           window.Capacitor.isNativePlatform();
+  },
+
+  /**
    * Helper para construir redirectTo con basePath
+   * En apps nativas, usa el URL scheme personalizado
    */
   getAuthRedirectUrl(pathname) {
     if (typeof window === 'undefined') return pathname;
+    
+    // En Capacitor nativo, usar URL scheme personalizado
+    if (this.isCapacitorNative()) {
+      const path = pathname.startsWith('/') ? pathname : `/${pathname}`;
+      return `ondeon-smart:/${path}`;
+    }
+    
+    // En web, usar la URL normal
     const base = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
     const path = pathname.startsWith('/') ? pathname : `/${pathname}`;
     const fullPath = base === '' ? path : `${base}${path}`;
@@ -512,26 +556,64 @@ export const authApi = {
   
   /**
    * Login con Google OAuth
+   * En nativo usa in-app browser (SFSafariViewController)
    */
   async signInWithGoogle() {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: this.getAuthRedirectUrl('/login')
-      }
-    });
-    if (error) throw error;
-    return data;
+    return this._performOAuth('google');
   },
   
   /**
    * Login con Apple OAuth
+   * En nativo usa in-app browser (SFSafariViewController)
    */
   async signInWithApple() {
+    return this._performOAuth('apple');
+  },
+  
+  /**
+   * Método interno para realizar OAuth con soporte in-app browser
+   */
+  async _performOAuth(provider) {
+    const redirectTo = this.getAuthRedirectUrl('/login');
+    
+    // En plataforma nativa, usar in-app browser
+    if (this.isCapacitorNative() && CapacitorBrowser) {
+      try {
+        // Obtener la URL de OAuth sin redirigir automáticamente
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider,
+          options: {
+            redirectTo,
+            skipBrowserRedirect: true // No redirigir automáticamente
+          }
+        });
+        
+        if (error) throw error;
+        
+        if (data?.url) {
+          logger.dev(`🔐 Abriendo OAuth ${provider} en in-app browser`);
+          
+          // Abrir en in-app browser (SFSafariViewController en iOS)
+          await CapacitorBrowser.open({
+            url: data.url,
+            presentationStyle: 'popover', // iOS: presentación modal
+            toolbarColor: '#0a0e14',
+            windowName: '_blank'
+          });
+          
+          return data;
+        }
+      } catch (e) {
+        logger.error(`❌ Error en OAuth ${provider} nativo:`, e);
+        throw e;
+      }
+    }
+    
+    // En web, usar el flujo normal de redirección
     const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'apple',
+      provider,
       options: {
-        redirectTo: this.getAuthRedirectUrl('/login')
+        redirectTo
       }
     });
     if (error) throw error;
@@ -618,6 +700,140 @@ export const usuariosApi = {
 };
 
 // ============================================================================
+// CONTENT ASSIGNMENTS API - Contenidos asignados al usuario
+// ============================================================================
+
+export const contentAssignmentsApi = {
+  /**
+   * Obtiene los contenidos de programaciones activas/pausadas asignadas al usuario.
+   * Devuelve los contenidos con su información de programación.
+   */
+  async getUserProgrammingContent(userId) {
+    if (!userId) {
+      logger.warn('⚠️ getUserProgrammingContent: userId no proporcionado');
+      return [];
+    }
+
+    try {
+      // 1. Obtener las programaciones asignadas al usuario
+      const { data: asignaciones, error: errorAsignaciones } = await measureQuery(
+        'get_user_programaciones',
+        () => supabase
+          .from('programacion_destinatarios')
+          .select('programacion_id')
+          .eq('usuario_id', userId)
+      );
+
+      if (errorAsignaciones) {
+        logger.error('❌ Error obteniendo asignaciones:', errorAsignaciones);
+        throw errorAsignaciones;
+      }
+
+      if (!asignaciones || asignaciones.length === 0) {
+        logger.dev('📭 Usuario sin programaciones asignadas');
+        return [];
+      }
+
+      const programacionIds = asignaciones.map(a => a.programacion_id);
+
+      // 2. Obtener las programaciones con estado activo o pausado
+      const { data: programaciones, error: errorProgramaciones } = await measureQuery(
+        'get_programaciones_activas',
+        () => supabase
+          .from('programaciones')
+          .select('id, nombre, descripcion, tipo, frecuencia_minutos, hora_inicio, hora_fin, modo_audio, esperar_fin_cancion, estado, daily_mode, cada_dias, rango_desde, rango_hasta, hora_una_vez_dia, weekly_mode, weekly_days, weekly_rango_desde, weekly_rango_hasta, weekly_hora_una_vez, annual_date, annual_time')
+          .in('id', programacionIds)
+          .in('estado', ['activo', 'pausado'])
+      );
+
+      if (errorProgramaciones) {
+        logger.error('❌ Error obteniendo programaciones:', errorProgramaciones);
+        throw errorProgramaciones;
+      }
+
+      if (!programaciones || programaciones.length === 0) {
+        logger.dev('📭 No hay programaciones activas/pausadas');
+        return [];
+      }
+
+      const programacionIdsActivos = programaciones.map(p => p.id);
+
+      // 3. Obtener los contenidos de esas programaciones
+      const { data: programacionContenidos, error: errorContenidos } = await measureQuery(
+        'get_programacion_contenidos',
+        () => supabase
+          .from('programacion_contenidos')
+          .select(`
+            id,
+            programacion_id,
+            contenido_id,
+            orden,
+            contenidos (
+              id,
+              nombre,
+              tipo_contenido,
+              url_s3,
+              duracion_segundos,
+              activo
+            )
+          `)
+          .in('programacion_id', programacionIdsActivos)
+          .order('orden', { ascending: true })
+      );
+
+      if (errorContenidos) {
+        logger.error('❌ Error obteniendo contenidos:', errorContenidos);
+        throw errorContenidos;
+      }
+
+      // 4. Combinar datos: cada contenido con su info de programación
+      const resultado = (programacionContenidos || [])
+        .filter(pc => pc.contenidos && pc.contenidos.activo !== false)
+        .map(pc => {
+          const prog = programaciones.find(p => p.id === pc.programacion_id);
+          return {
+            id: pc.id,
+            programacion_id: pc.programacion_id,
+            contenido_id: pc.contenido_id,
+            orden: pc.orden,
+            contenidos: pc.contenidos,
+            programacion_info: prog ? {
+              nombre: prog.nombre,
+              descripcion: prog.descripcion,
+              tipo: prog.tipo,
+              frecuencia_minutos: prog.frecuencia_minutos,
+              hora_inicio: prog.hora_inicio,
+              hora_fin: prog.hora_fin,
+              modo_audio: prog.modo_audio,
+              esperar_fin_cancion: prog.esperar_fin_cancion,
+              estado: prog.estado,
+              daily_mode: prog.daily_mode,
+              cada_dias: prog.cada_dias,
+              rango_desde: prog.rango_desde,
+              rango_hasta: prog.rango_hasta,
+              hora_una_vez_dia: prog.hora_una_vez_dia,
+              weekly_mode: prog.weekly_mode,
+              weekly_days: prog.weekly_days,
+              weekly_rango_desde: prog.weekly_rango_desde,
+              weekly_rango_hasta: prog.weekly_rango_hasta,
+              weekly_hora_una_vez: prog.weekly_hora_una_vez,
+              annual_date: prog.annual_date,
+              annual_time: prog.annual_time
+            } : null
+          };
+        });
+
+      logger.dev(`✅ Contenidos de programaciones obtenidos: ${resultado.length}`);
+      return resultado;
+
+    } catch (error) {
+      logger.error('❌ Error en getUserProgrammingContent:', error);
+      throw error;
+    }
+  }
+};
+
+// ============================================================================
 // EXPORT DEFAULT
 // ============================================================================
 
@@ -629,5 +845,6 @@ export default {
   contenidosApi,
   presenceApi,
   authApi,
-  usuariosApi
+  usuariosApi,
+  contentAssignmentsApi
 };

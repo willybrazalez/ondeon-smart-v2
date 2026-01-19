@@ -5,6 +5,40 @@ import scheduledContentService from '@/services/scheduledContentService'
 import logger from '@/lib/logger'
 
 // ============================================================================
+// CAPACITOR DEEP LINK HANDLER - Para OAuth callback
+// ============================================================================
+const setupDeepLinkHandler = async (handleOAuthCallback) => {
+  if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
+    try {
+      const { App } = await import('@capacitor/app');
+      const { Browser } = await import('@capacitor/browser');
+      
+      // Escuchar deep links (OAuth callback)
+      App.addListener('appUrlOpen', async ({ url }) => {
+        logger.dev('🔗 Deep link recibido:', url);
+        
+        // Verificar si es un callback de OAuth (contiene access_token o error)
+        if (url.includes('access_token=') || url.includes('error=') || url.includes('code=')) {
+          // Cerrar el browser in-app
+          try {
+            await Browser.close();
+          } catch (e) {
+            // Ignorar si no hay browser abierto
+          }
+          
+          // Procesar el callback de OAuth
+          await handleOAuthCallback(url);
+        }
+      });
+      
+      logger.dev('✅ Deep link handler configurado');
+    } catch (e) {
+      logger.warn('⚠️ No se pudo configurar deep link handler:', e);
+    }
+  }
+};
+
+// ============================================================================
 // ONDEON SMART v2 - AUTH CONTEXT
 // ============================================================================
 // Sistema de autenticación simplificado usando solo Supabase Auth.
@@ -48,6 +82,61 @@ export const AuthProvider = ({ children }) => {
   // Refs para evitar múltiples cargas
   const initLoadedRef = useRef(false)
   const lastAuthUserIdRef = useRef(null)
+
+  // ============================================================================
+  // OAUTH CALLBACK HANDLER (para deep links en apps nativas)
+  // ============================================================================
+  
+  const handleOAuthCallback = useCallback(async (url) => {
+    try {
+      logger.dev('🔐 Procesando OAuth callback:', url);
+      
+      // Extraer tokens del URL (puede estar en hash o query params)
+      const urlObj = new URL(url.replace('ondeon-smart:/', 'https://app'));
+      
+      // Los tokens pueden estar en el hash (#) o en query params (?)
+      let params = new URLSearchParams(urlObj.hash.substring(1)); // Intentar hash primero
+      if (!params.get('access_token')) {
+        params = new URLSearchParams(urlObj.search); // Luego query params
+      }
+      
+      const accessToken = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+      const error = params.get('error');
+      const errorDescription = params.get('error_description');
+      
+      if (error) {
+        logger.error('❌ Error en OAuth:', error, errorDescription);
+        throw new Error(errorDescription || error);
+      }
+      
+      if (accessToken && refreshToken) {
+        logger.dev('✅ Tokens OAuth recibidos, estableciendo sesión...');
+        
+        // Establecer la sesión en Supabase
+        const { data, error: setSessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken
+        });
+        
+        if (setSessionError) {
+          throw setSessionError;
+        }
+        
+        logger.dev('✅ Sesión OAuth establecida correctamente');
+        // El onAuthStateChange listener se encargará del resto
+      } else {
+        logger.warn('⚠️ OAuth callback sin tokens válidos');
+      }
+    } catch (e) {
+      logger.error('❌ Error procesando OAuth callback:', e);
+    }
+  }, []);
+
+  // Configurar deep link handler al montar
+  useEffect(() => {
+    setupDeepLinkHandler(handleOAuthCallback);
+  }, [handleOAuthCallback]);
 
   // ============================================================================
   // INICIALIZACIÓN

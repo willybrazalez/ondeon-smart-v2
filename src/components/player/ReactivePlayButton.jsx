@@ -397,45 +397,67 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
         style={{ opacity: (isPlaying || isManualPlaybackActive) ? 1 : 0, transition: 'opacity 0.3s ease' }}
       />
 
-      {/* Ondas concéntricas reactivas al ritmo */}
-      {/* ⚠️ TEMPORALMENTE DESACTIVADO - Para reactivar, descomentar este bloque
-      {isPlaying && waves.map(wave => (
-          <motion.div
-            key={wave.id}
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full pointer-events-none"
-            style={{
-              width: `${100 * wave.scale}px`,
-              height: `${100 * wave.scale}px`,
-              border: `2px solid rgba(162, 217, 247, ${wave.opacity * wave.intensity})`,
-              boxShadow: `0 0 ${15 * wave.intensity}px rgba(162, 217, 247, ${wave.opacity * wave.intensity * 0.8})`,
-              opacity: wave.opacity,
-            }}
-          />
-      ))}
-      */}
+      {/* Anillos decorativos externos */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+        {/* Anillo exterior pulsante */}
+        <motion.div
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 md:w-28 md:h-28 rounded-full border border-white/[0.08]"
+          animate={(isPlaying || isManualPlaybackActive) ? {
+            scale: [1, 1.1, 1],
+            opacity: [0.3, 0.6, 0.3],
+          } : {}}
+          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+        />
+        {/* Anillo medio */}
+        <motion.div
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 md:w-24 md:h-24 rounded-full border border-[#A2D9F7]/10"
+          animate={(isPlaying || isManualPlaybackActive) ? {
+            scale: [1, 1.05, 1],
+            opacity: [0.2, 0.4, 0.2],
+          } : {}}
+          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
+        />
+      </div>
 
-      {/* Botón central con estilo original */}
+      {/* Botón central - Diseño moderno glassmorphism */}
       <motion.button
         onClick={onPlayPause}
         disabled={disabled}
         title={blockMessage || ((isPlaying || isManualPlaybackActive) ? 'Pausar' : 'Reproducir')}
-        className={`relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-150 z-10
-          ${(isPlaying || isManualPlaybackActive)
-            ? 'bg-black/10 dark:bg-white/10 hover:bg-black/15 dark:hover:bg-white/15' 
-            : 'bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10'
-          } ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:scale-110'}
-          backdrop-blur-lg shadow-[0_0_30px_rgba(162,217,247,0.3)] dark:shadow-[0_0_30px_rgba(255,255,255,0.2)]
-          hover:shadow-[0_0_40px_rgba(162,217,247,0.4)] dark:hover:shadow-[0_0_40px_rgba(255,255,255,0.3)]
-          text-black/90 dark:text-white/90 transition-transform duration-150`}
-        whileHover={!disabled ? { scale: 1.1 } : {}}
+        className={`relative w-24 h-24 md:w-20 md:h-20 rounded-full flex items-center justify-center z-10
+          bg-white/[0.08] border border-white/[0.12] backdrop-blur-2xl
+          ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+          transition-all duration-300`}
+        style={{
+          boxShadow: (isPlaying || isManualPlaybackActive) 
+            ? '0 0 60px rgba(162, 217, 247, 0.3), 0 0 100px rgba(162, 217, 247, 0.15), inset 0 0 30px rgba(162, 217, 247, 0.1)' 
+            : '0 0 40px rgba(162, 217, 247, 0.15), inset 0 0 20px rgba(255, 255, 255, 0.05)'
+        }}
+        whileHover={!disabled ? { scale: 1.08 } : {}}
         whileTap={!disabled ? { scale: 0.95 } : {}}
-        transition={{ type: "spring", stiffness: 600, damping: 15 }}
+        transition={{ type: "spring", stiffness: 400, damping: 20 }}
       >
-        {(isPlaying || isManualPlaybackActive) ? (
-          <Pause className="w-10 h-10" />
-        ) : (
-          <Play className="w-10 h-10 ml-1" />
+        {/* Glow interior cuando está reproduciendo */}
+        {(isPlaying || isManualPlaybackActive) && (
+          <motion.div
+            className="absolute inset-2 rounded-full bg-gradient-to-br from-[#A2D9F7]/20 to-transparent"
+            animate={{ opacity: [0.5, 0.8, 0.5] }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+          />
         )}
+        
+        {/* Icono */}
+        <motion.div
+          className="relative z-10"
+          animate={(isPlaying || isManualPlaybackActive) ? { scale: [1, 1.05, 1] } : {}}
+          transition={{ duration: 1, repeat: Infinity, ease: "easeInOut" }}
+        >
+          {(isPlaying || isManualPlaybackActive) ? (
+            <Pause className="w-10 h-10 md:w-9 md:h-9 text-white" strokeWidth={2.5} />
+          ) : (
+            <Play className="w-10 h-10 md:w-9 md:h-9 text-white ml-1" strokeWidth={2.5} />
+          )}
+        </motion.div>
       </motion.button>
     </div>
   );

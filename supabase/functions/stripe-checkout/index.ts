@@ -78,11 +78,18 @@ serve(async (req) => {
     }
 
     // Validar que el price_id sea uno de los permitidos
+    // 🔧 TEST MODE: Price IDs de Stripe Test
     const allowedPriceIds = [
-      'price_1Sojx8P5ynRjXl9TaOrZwRzq', // Básico mensual
-      'price_1Sojx8P5ynRjXl9TrpTLcHiu', // Básico anual
-      'price_1Sojx8P5ynRjXl9TMzFI4Rk5', // Pro mensual
-      'price_1Sojx8P5ynRjXl9TvDcxGyqy', // Pro anual
+      // Nuevos precios (Enero 2026)
+      'price_1Sr57jP5ynRjXl9Tv4wCtIKc', // Básico mensual €10
+      'price_1Sr57tP5ynRjXl9T4gchtSmT', // Básico anual €96
+      'price_1Sr583P5ynRjXl9TWcSnhKiD', // Pro mensual €18
+      'price_1Sr583P5ynRjXl9Tc2qdU3eL', // Pro anual €168
+      // Precios antiguos (mantener temporalmente para suscripciones existentes)
+      'price_1Sojx8P5ynRjXl9TaOrZwRzq', // Básico mensual antiguo
+      'price_1Sojx8P5ynRjXl9TrpTLcHiu', // Básico anual antiguo
+      'price_1Sojx8P5ynRjXl9TMzFI4Rk5', // Pro mensual antiguo
+      'price_1Sojx8P5ynRjXl9TvDcxGyqy', // Pro anual antiguo
     ]
     
     if (!allowedPriceIds.includes(price_id)) {

@@ -583,15 +583,16 @@ export default function RegisterPage() {
   };
 
   // Obtener precio actual basado en selección
-  const getCurrentPrice = () => {
-    const plan = STRIPE_PRICES[selectedPlan];
+  const getCurrentPrice = (planKey = selectedPlan) => {
+    const plan = STRIPE_PRICES[planKey];
     return billingInterval === 'mensual' 
       ? { price_id: plan.mensual, amount: plan.precioMensual, label: `€${plan.precioMensual}/mes` }
-      : { price_id: plan.anual, amount: plan.precioAnual, label: `€${Math.round(plan.precioAnual / 12)}/mes` };
+      : { price_id: plan.anual, amount: plan.precioAnual, label: `€${plan.precioMensualAnual}/mes (€${plan.precioAnual}/año)` };
   };
 
   // Iniciar checkout de Stripe
-  const handleStartCheckout = async () => {
+  // planKey: 'basico' o 'pro' - se pasa explícitamente para evitar problemas con state async
+  const handleStartCheckout = async (planKey = selectedPlan) => {
     setError('');
     setLoading(true);
 
@@ -611,14 +612,23 @@ export default function RegisterPage() {
         setUserCreated(user);
       }
 
-      const priceInfo = getCurrentPrice();
-      const planInfo = STRIPE_PRICES[selectedPlan];
+      const priceInfo = getCurrentPrice(planKey);
+      const planInfo = STRIPE_PRICES[planKey];
       
       logger.dev('💳 Iniciando checkout para:', currentUser.id, {
         plan: planInfo.nombre,
         interval: billingInterval,
-        price_id: priceInfo.price_id
+        price_id: priceInfo.price_id,
+        planKey: planKey
       });
+
+      // Obtener token de sesión para autenticar la llamada
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+
+      if (!accessToken) {
+        throw new Error('No hay sesión activa. Por favor, inicia sesión de nuevo.');
+      }
 
       // Crear sesión de checkout via Edge Function
       const { checkout_url } = await stripeApi.createCheckoutSession({
@@ -630,7 +640,8 @@ export default function RegisterPage() {
         telefono: form.telefono,
         nombre_negocio: form.nombreNegocio,
         success_url: `${window.location.origin}/gestor?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${window.location.origin}/registro?cancelled=true`
+        cancel_url: `${window.location.origin}/registro?cancelled=true`,
+        access_token: accessToken
       });
 
       // Redirigir a Stripe Checkout
@@ -1173,10 +1184,20 @@ export default function RegisterPage() {
       ]
     };
 
-    // Precios para mostrar (anuales dividido por 12 para mostrar precio mensual equivalente)
+    // Precios para mostrar
     const displayPrices = {
-      basico: billingInterval === 'anual' ? 18 : STRIPE_PRICES.basico.precioMensual,
-      pro: billingInterval === 'anual' ? 23 : STRIPE_PRICES.pro.precioMensual
+      basico: billingInterval === 'anual' 
+        ? STRIPE_PRICES.basico.precioMensualAnual 
+        : STRIPE_PRICES.basico.precioMensual,
+      pro: billingInterval === 'anual' 
+        ? STRIPE_PRICES.pro.precioMensualAnual 
+        : STRIPE_PRICES.pro.precioMensual
+    };
+    
+    // Totales anuales para mostrar
+    const annualTotals = {
+      basico: STRIPE_PRICES.basico.precioAnual,
+      pro: STRIPE_PRICES.pro.precioAnual
     };
 
     return (
@@ -1278,7 +1299,9 @@ export default function RegisterPage() {
                   <span className="text-gray-400 text-sm">/mes</span>
                 </div>
                 {billingInterval === 'anual' && (
-                  <p className="text-xs text-gray-500 mt-1">facturado anualmente</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    <span className="text-gray-400 font-medium">€{annualTotals.basico}/año</span> · facturado anualmente
+                  </p>
                 )}
               </div>
               
@@ -1306,7 +1329,7 @@ export default function RegisterPage() {
                 onClick={(e) => {
                   e.stopPropagation();
                   setSelectedPlan('basico');
-                  handleStartCheckout();
+                  handleStartCheckout('basico'); // Pasar plan explícitamente
                 }}
                 disabled={loading && selectedPlan === 'basico'}
                 className="w-full py-2.5 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-[1.02] active:scale-95 bg-white/5 text-white hover:bg-white/10 border border-white/10"
@@ -1344,7 +1367,9 @@ export default function RegisterPage() {
                   <span className="text-gray-400 text-sm">/mes</span>
                 </div>
                 {billingInterval === 'anual' && (
-                  <p className="text-xs text-gray-500 mt-1">facturado anualmente</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    <span className="text-gray-400 font-medium">€{annualTotals.pro}/año</span> · facturado anualmente
+                  </p>
                 )}
               </div>
               
@@ -1372,7 +1397,7 @@ export default function RegisterPage() {
                 onClick={(e) => {
                   e.stopPropagation();
                   setSelectedPlan('pro');
-                  handleStartCheckout();
+                  handleStartCheckout('pro'); // Pasar plan explícitamente
                 }}
                 disabled={loading && selectedPlan === 'pro'}
                 className="w-full py-2.5 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-[1.02] active:scale-95 text-[#1a1c20] shadow-lg"

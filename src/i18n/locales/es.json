@@ -22,12 +22,14 @@
     "player": "Reproductor",
     "channels": "Canales",
     "content": "Contenidos",
+    "contents": "Contenidos",
     "history": "Historial",
     "support": "Soporte",
     "createAd": "Crear Anuncio",
     "settings": "Ajustes",
     "logout": "Salir",
-    "dashboard": "Dashboard Admin"
+    "dashboard": "Dashboard Admin",
+    "myAccount": "Mi Cuenta"
   },
   "player": {
     "loading": "Cargando...",
@@ -93,6 +95,35 @@
     "noChannels": "No hay canales disponibles",
     "loadingChannels": "Cargando canales...",
     "channelError": "Error al cargar canales"
+  },
+  "contents": {
+    "title": "Contenidos",
+    "subtitle": "Gestiona tus contenidos programados",
+    "total": "Total",
+    "active": "Activos",
+    "paused": "Pausados",
+    "all": "Todos",
+    "search": "Buscar contenidos...",
+    "loading": "Cargando contenidos...",
+    "error": "Error",
+    "errorLoading": "Error al cargar",
+    "retry": "Reintentar",
+    "empty": "Sin contenidos",
+    "emptyDesc": "Los contenidos programados aparecerán aquí cuando se configuren desde el panel de administración",
+    "noResults": "Sin resultados",
+    "noResultsDesc": "Prueba con otros filtros o términos de búsqueda",
+    "playing": "Reproduciendo",
+    "alreadyPlaying": "Ya hay contenido reproduciéndose",
+    "errorPlaying": "Error al reproducir"
+  },
+  "account": {
+    "title": "Mi Cuenta",
+    "establishment": "Establecimiento",
+    "email": "Email",
+    "role": "Rol",
+    "gestorDashboard": "Panel de Gestión",
+    "gestorDesc": "Administra tu establecimiento",
+    "logout": "Cerrar Sesión"
   },
   "footer": {
     "version": "Ondeon Smart"
