@@ -1,57 +1,91 @@
-Failed to resolve host network app id to config: bundleID: com.apple.WebKit.Networking instance ID: Optional([_EXExtensionInstanceIdentifier: CF20248C-277D-4EF1-ADA6-90E2B199DD4A])
-Type: Error | Timestamp: 2026-01-19 15:14:29.289791Z | Process: App | Library: ExtensionFoundation | Subsystem: com.apple.extensionkit | Category: default | TID: 0x18b3281
-⚡️  Loading app at capacitor://localhost...
-Type: stdio
-Failed to send CA Event for app launch measurements for ca_event_type: 0 event_name: com.apple.app_launch_measurement.FirstFramePresentationMetric
-Type: Error | Timestamp: 2026-01-19 15:14:29.368392Z | Process: App | Library: libapp_launch_measurement.dylib | Subsystem: com.apple.app_launch_measurement | Category: General | TID: 0x18b3291
--[RTIInputSystemClient remoteTextInputSessionWithID:performInputOperation:]  Can only perform input operation for an active session. sessionID = B8491DC1-0535-4389-BAB5-3214AA438872
-Type: Error | Timestamp: 2026-01-19 15:14:29.689895Z | Process: App | Library: RemoteTextInput | Subsystem: com.apple.RemoteTextInput | Category: RTILog | TID: 0x18b2cb9
--[RTIInputSystemClient remoteTextInputSessionWithID:textSuggestionsChanged:]  Can only set suggestions for an active session. sessionID = B8491DC1-0535-4389-BAB5-3214AA438872
-Type: Error | Timestamp: 2026-01-19 15:14:29.690913Z | Process: App | Library: RemoteTextInput | Subsystem: com.apple.RemoteTextInput | Category: RTILog | TID: 0x18b2cb9
--[RTIInputSystemClient remoteTextInputSessionWithID:textSuggestionsChanged:]  Can only set suggestions for an active session. sessionID = B8491DC1-0535-4389-BAB5-3214AA438872
-Type: Error | Timestamp: 2026-01-19 15:14:29.700382Z | Process: App | Library: RemoteTextInput | Subsystem: com.apple.RemoteTextInput | Category: RTILog | TID: 0x18b2cb9
--[RTIInputSystemClient remoteTextInputSessionWithID:textSuggestionsChanged:]  Can only set suggestions for an active session. sessionID = B8491DC1-0535-4389-BAB5-3214AA438872
-Type: Error | Timestamp: 2026-01-19 15:14:30.209323Z | Process: App | Library: RemoteTextInput | Subsystem: com.apple.RemoteTextInput | Category: RTILog | TID: 0x18b2cb9
-⚡️  WebView loaded
-Type: stdio
-Failed to send CA Event for app launch measurements for ca_event_type: 1 event_name: com.apple.app_launch_measurement.ExtendedLaunchMetrics
-Type: Error | Timestamp: 2026-01-19 15:14:30.301961Z | Process: App | Library: libapp_launch_measurement.dylib | Subsystem: com.apple.app_launch_measurement | Category: General | TID: 0x18b3281
-⚡️  [log] - 🌐 [Platform Debug] {"isWeb":true,"protocol":"capacitor:","pathname":"/","currentPath":"/"}
-⚡️  To Native ->  App getLaunchUrl 71355714
-⚡️  TO JS undefined
-⚡️  To Native ->  App addListener 71355715
-⚡️  [error] - ❌ ❌ Error en audio (Girl of the North Country): {"code":4,"message":"MEDIA_ERR_SRC_NOT_SUPPORTED: Formato no soportado o archivo corrupto","error":{}}
-⚡️  [error] - ❌ ❌ Error cargando canción: {}
-⚡️  [error] - ❌ ❌ AutoDJ: Error en reproductor: {"message":"Error cargando audio: desconocido","song":"Canción desconocida","error":{}}
-⚡️  [warn] - ⚠️ ⚠️ Error cargando canción
-⚡️  [error] - ❌ ❌ Error en audio (Just the Way You Are): {"code":4,"message":"MEDIA_ERR_SRC_NOT_SUPPORTED: Formato no soportado o archivo corrupto","error":{}}
-⚡️  [error] - ❌ ❌ Error cargando canción: {}
-⚡️  [error] - ❌ ❌ AutoDJ: Error en reproductor: {"message":"Error cargando audio: desconocido","song":"Canción desconocida","error":{}}
-⚡️  [warn] - ⚠️ ⚠️ Error cargando canción, intentando siguiente...
-⚡️  [log] - 🌐 [Platform Debug] {"isWeb":true,"protocol":"capacitor:","pathname":"/cuenta","currentPath":"/cuenta"}
-⚡️  [log] - 🌐 [Platform Debug] {"isWeb":true,"protocol":"capacitor:","pathname":"/login","currentPath":"/login"}
-⚡️  To Native ->  Browser open 71355716
-⚡️  TO JS undefined
-Type: stdio
--[RTIInputSystemClient remoteTextInputSessionWithID:performInputOperation:]  perform input operation requires a valid sessionID. inputModality = Keyboard, inputOperation = <null selector>, customInfoType = UIEmojiSearchOperations
-Type: Error | Timestamp: 2026-01-19 15:14:51.977248Z | Process: App | Library: RemoteTextInput | Subsystem: com.apple.RemoteTextInput | Category: RTILog | TID: 0x18b2cb9
-⚡️  TO JS {"iosOpenInPlace":"","url":"ondeon-smart:\/\/login#access_token=eyJhbGciOiJFUzI1NiIsImtpZCI6IjYyZTk5M2MxLTk0MDItNGZmNy04ZjAzLThmODIyYjZmNDRiYyIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL3ZxaGFvZXJwaG55YWhuYmVtbWRkLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiI5OTVmNWQ
-⚡️  To Native ->  Browser close 71355717
-Type: stdio
--[RTIInputSystemClient remoteTextInputSessionWithID:performInputOperation:]  perform input operation requires a valid sessionID. inputModality = Keyboard, inputOperation = <null selector>, customInfoType = UIEmojiSearchOperations
-Type: Error | Timestamp: 2026-01-19 15:14:53.258536Z | Process: App | Library: RemoteTextInput | Subsystem: com.apple.RemoteTextInput | Category: RTILog | TID: 0x18b2cb9
--[RTIInputSystemClient remoteTextInputSessionWithID:performInputOperation:]  perform input operation requires a valid sessionID. inputModality = Keyboard, inputOperation = <null selector>, customInfoType = UIEmojiSearchOperations
-Type: Error | Timestamp: 2026-01-19 15:14:53.259815Z | Process: App | Library: RemoteTextInput | Subsystem: com.apple.RemoteTextInput | Category: RTILog | TID: 0x18b2cb9
--[RTIInputSystemClient remoteTextInputSessionWithID:performInputOperation:]  Can only perform input operation for an active session. sessionID = B8491DC1-0535-4389-BAB5-3214AA438872
-Type: Error | Timestamp: 2026-01-19 15:14:53.273158Z | Process: App | Library: RemoteTextInput | Subsystem: com.apple.RemoteTextInput | Category: RTILog | TID: 0x18b2cb9
--[RTIInputSystemClient remoteTextInputSessionWithID:textSuggestionsChanged:]  Can only set suggestions for an active session. sessionID = B8491DC1-0535-4389-BAB5-3214AA438872
-Type: Error | Timestamp: 2026-01-19 15:14:53.280716Z | Process: App | Library: RemoteTextInput | Subsystem: com.apple.RemoteTextInput | Category: RTILog | TID: 0x18b2cb9
--[RTIInputSystemClient remoteTextInputSessionWithID:textSuggestionsChanged:]  Can only set suggestions for an active session. sessionID = B8491DC1-0535-4389-BAB5-3214AA438872
-Type: Error | Timestamp: 2026-01-19 15:14:53.281987Z | Process: App | Library: RemoteTextInput | Subsystem: com.apple.RemoteTextInput | Category: RTILog | TID: 0x18b2cb9
-⚡️  TO JS undefined
-⚡️  [log] - 🌐 [Platform Debug] {"isWeb":true,"protocol":"capacitor:","pathname":"/","currentPath":"/"}
-Type: stdio
--[RTIInputSystemClient remoteTextInputSessionWithID:textSuggestionsChanged:]  Can only set suggestions for an active session. sessionID = B8491DC1-0535-4389-BAB5-3214AA438872
-Type: Error | Timestamp: 2026-01-19 15:15:27.098487Z | Process: App | Library: RemoteTextInput | Subsystem: com.apple.RemoteTextInput | Category: RTILog | TID: 0x18b2cb9
--[RTIInputSystemClient remoteTextInputSessionWithID:textSuggestionsChanged:]  Can only set suggestions for an active session. sessionID = B8491DC1-0535-4389-BAB5-3214AA438872
-Type: Error | Timestamp: 2026-01-19 15:15:27.116690Z | Process: App | Library: RemoteTextInput | Subsystem: com.apple.RemoteTextInput | Category: RTILog | TID: 0x18b2cb9
+chunk-G52XTN3B.js?v=979ca8eb:21580 Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools
+logger.js:17 🔧 Función de limpieza disponible: window.clearSupabaseSession()
+logger.js:17 🎛️ AutoDJ disponible globalmente en window.autoDjInstance
+logger.js:17 🌙 Tema oscuro forzado en LoginPage
+logger.js:17 🔐 [OAuth] Detectados tokens en URL hash
+logger.js:17 🔐 [OAuth] Estableciendo sesión con tokens...
+App.jsx:389 🌐 [Platform Debug] Object
+logger.js:17 🔄 Hook detecta cambio en interrupción: Object
+logger.js:17 🧹 Estados limpiados - usuario deslogueado
+react-router-dom.js?v=979ca8eb:4452 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+warnOnce @ react-router-dom.js?v=979ca8eb:4452
+react-router-dom.js?v=979ca8eb:4452 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+warnOnce @ react-router-dom.js?v=979ca8eb:4452
+logger.js:17 🔧 [DeepLink] Configurando handler - isNative: undefined
+logger.js:17 🔐 [DeepLink] Tokens detectados en URL hash actual
+logger.js:17 🔐 [OAuth] Procesando URL con tokens: http://localhost:5173/login#access_token=eyJhbGciO...
+logger.js:17 🔐 [OAuth] Procesando callback: http://localhost:5173/login#access_token=eyJhbGciOiJFUzI1NiIsImtpZCI6IjYyZTk5M2MxLTk0MDItNGZmNy04ZjA
+logger.js:17 🔐 [OAuth] Tokens extraídos del hash
+logger.js:17 ✅ Tokens OAuth recibidos, estableciendo sesión...
+app.js:2 init extension
+stripe.js:1 You may test your Stripe.js integration over HTTP. However, live Stripe.js integrations must use HTTPS.
+value @ stripe.js:1
+logger.js:17 🔄 Auth state change: SIGNED_IN
+logger.js:17 🔄 Cargando datos iniciales del usuario...
+logger.js:17 🔄 Auth state change: SIGNED_IN
+logger.js:17 🔄 Cargando datos iniciales del usuario...
+app.js:2 Sidebar destroyed
+logger.js:17 ⏱️ Timeout de 5000ms alcanzado
+logger.js:17 ℹ️ No hay usuario autenticado o timeout
+logger.js:17 ⏱️ Timeout de 5000ms alcanzado
+logger.js:17 ℹ️ No hay usuario autenticado o timeout
+logger.js:17 ✅ [OAuth] Sesión establecida para: wibrazalez@gmail.com
+logger.js:17 🔄 Auth state change: SIGNED_IN
+logger.js:17 🔄 Cargando datos iniciales del usuario...
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 pong
+@supabase_supabase-js.js?v=979ca8eb:8186 Uncaught (in promise) AbortError: signal is aborted without reason
+    at @supabase_supabase-js.js?v=979ca8eb:8186:23
+(anónimo) @ @supabase_supabase-js.js?v=979ca8eb:8186
+@supabase_supabase-js.js?v=979ca8eb:8186 Uncaught (in promise) AbortError: signal is aborted without reason
+    at @supabase_supabase-js.js?v=979ca8eb:8186:23
+(anónimo) @ @supabase_supabase-js.js?v=979ca8eb:8186
+logger.js:17 ⏱️ Timeout de 5000ms alcanzado
+logger.js:17 ℹ️ No hay usuario autenticado o timeout
+logger.js:17 ✅ Sesión OAuth establecida correctamente
+logger.js:17 🧹 [DeepLink] Hash limpiado de URL
+logger.js:17 ✅ [OAuth] Redirigiendo a: /
+App.jsx:389 🌐 [Platform Debug] {isWeb: true, protocol: 'http:', pathname: '/', currentPath: '/'}
+logger.js:17 🎵 AudioPlayerService inicializado - Crossfade: DESACTIVADO, Interrupciones: ACTIVADO
+logger.js:17 🎵 Volumen música actualizado: 0.8
+logger.js:17 🎤 Volumen contenido actualizado: {anterior: 1, nuevo: 1, entrada: 1, porcentaje: '100%', aplicadoAReproductorActivo: false}
+logger.js:17 🔊 Volúmenes inicializados - Música: 80 Contenido: 100
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 pong
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 pong
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 pong
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 pong
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 pong
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 pong
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 pong
+app.js:2 Sidebar destroyed
+logger.js:17 🔄 Auth state change: SIGNED_IN
+logger.js:17 🔄 Cargando datos iniciales del usuario...
+app.js:2 Sidebar destroyed
+app.js:2 Sidebar destroyed
+app.js:2 pong
+app.js:2 Sidebar destroyed
+logger.js:17 ⏱️ Timeout de 5000ms alcanzado
+logger.js:17 ℹ️ No hay usuario autenticado o timeout

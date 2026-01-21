@@ -276,8 +276,10 @@ export const AuthProvider = ({ children }) => {
           setUser(session?.user ?? null)
           
           // Cargar datos si es un nuevo usuario
+          // Pasamos el usuario de la sesión directamente para evitar race conditions con getUser()
           if (session?.user?.id && session.user.id !== lastAuthUserIdRef.current) {
-            await loadUserInitData()
+            lastAuthUserIdRef.current = session.user.id // Marcar inmediatamente para evitar duplicados
+            await loadUserInitData(session.user)
           }
         }
       }
@@ -290,7 +292,7 @@ export const AuthProvider = ({ children }) => {
   // CARGA DE DATOS DEL USUARIO
   // ============================================================================
   
-  const loadUserInitData = async () => {
+  const loadUserInitData = async (providedUser = null) => {
     // Flag para asegurar que siempre establecemos registroCompleto
     let registroCompletoSet = false
     
@@ -312,14 +314,20 @@ export const AuthProvider = ({ children }) => {
         ])
       }
       
-      // Obtener usuario con timeout
-      const userResult = await withTimeout(
-        supabase.auth.getUser(),
-        QUICK_TIMEOUT,
-        { data: { user: null } }
-      )
+      // Si se proporciona el usuario (desde onAuthStateChange), usarlo directamente
+      // Esto evita race conditions donde getUser() retorna null durante OAuth
+      let authUser = providedUser
       
-      const authUser = userResult?.data?.user
+      if (!authUser) {
+        // Fallback: obtener usuario con timeout (para getInitialSession)
+        const userResult = await withTimeout(
+          supabase.auth.getUser(),
+          QUICK_TIMEOUT,
+          { data: { user: null } }
+        )
+        authUser = userResult?.data?.user
+      }
+      
       if (!authUser) {
         logger.dev('ℹ️ No hay usuario autenticado o timeout')
         setRegistroCompleto(false)
@@ -327,6 +335,8 @@ export const AuthProvider = ({ children }) => {
         registroCompletoSet = true
         return
       }
+      
+      logger.dev('✅ Usuario obtenido:', authUser.email)
       
       // 🔐 SEGURIDAD: Establecer estado de verificación de email
       const isEmailConfirmed = authUser.email_confirmed_at !== null
