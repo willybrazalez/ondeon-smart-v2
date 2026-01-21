@@ -570,28 +570,59 @@ export default function RegisterPage() {
     setResendSuccess(false);
     
     try {
-      // 🔑 CRÍTICO: Usar refreshSession() para obtener datos actualizados del servidor
-      // getUser() puede devolver datos cacheados del JWT que no reflejan la verificación
-      logger.dev('🔄 [Verificación] Refrescando sesión para verificar estado...');
+      // 🔑 CRÍTICO: Múltiples estrategias para obtener el estado de verificación actualizado
+      logger.dev('🔄 [Verificación] Verificando estado del email...');
       
+      let user = null;
+      let emailConfirmed = false;
+      
+      // Estrategia 1: refreshSession() para obtener un nuevo JWT
+      logger.dev('🔄 [Verificación] Estrategia 1: refreshSession...');
       const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
       
-      let user = refreshData?.user;
-      
-      // Si refreshSession falla, intentar con getUser como fallback
-      if (refreshError) {
-        logger.warn('⚠️ [Verificación] refreshSession falló, usando getUser:', refreshError.message);
-        const { data: userData } = await supabase.auth.getUser();
-        user = userData?.user;
+      if (!refreshError && refreshData?.user) {
+        user = refreshData.user;
+        emailConfirmed = !!user.email_confirmed_at;
+        logger.dev('📧 [Verificación] refreshSession - email_confirmed_at:', user.email_confirmed_at);
       }
       
-      if (user && user.email_confirmed_at) {
+      // Estrategia 2: Si refreshSession no muestra verificado, intentar getUser()
+      // getUser() hace una llamada directa al servidor de auth
+      if (!emailConfirmed) {
+        logger.dev('🔄 [Verificación] Estrategia 2: getUser (server call)...');
+        const { data: userData, error: getUserError } = await supabase.auth.getUser();
+        
+        if (!getUserError && userData?.user) {
+          user = userData.user;
+          emailConfirmed = !!user.email_confirmed_at;
+          logger.dev('📧 [Verificación] getUser - email_confirmed_at:', user.email_confirmed_at);
+        }
+      }
+      
+      // Estrategia 3: Si aún no detecta, esperar un momento y reintentar
+      if (!emailConfirmed && user) {
+        logger.dev('🔄 [Verificación] Estrategia 3: Esperando propagación...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Hacer sign out y sign in para forzar una sesión completamente nueva
+        const currentSession = await supabase.auth.getSession();
+        if (currentSession.data.session) {
+          const { data: finalRefresh } = await supabase.auth.refreshSession();
+          if (finalRefresh?.user?.email_confirmed_at) {
+            user = finalRefresh.user;
+            emailConfirmed = true;
+            logger.dev('📧 [Verificación] Reintento exitoso - email_confirmed_at:', user.email_confirmed_at);
+          }
+        }
+      }
+      
+      if (emailConfirmed && user) {
         logger.dev('✅ [Verificación] Email confirmado en:', user.email_confirmed_at);
         setUserCreated(user);
         setStep(4); // Ir al paso de datos del perfil
       } else {
-        logger.dev('❌ [Verificación] Email aún no verificado. user:', user?.email);
-        setError('El correo aún no ha sido verificado. Revisa tu bandeja de entrada.');
+        logger.dev('❌ [Verificación] Email aún no verificado. user:', user?.email, 'email_confirmed_at:', user?.email_confirmed_at);
+        setError('El correo aún no ha sido verificado. Revisa tu bandeja de entrada y vuelve a intentarlo en unos segundos.');
       }
     } catch (err) {
       logger.error('❌ [Verificación] Error:', err);
