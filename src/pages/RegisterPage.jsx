@@ -570,63 +570,102 @@ export default function RegisterPage() {
     setResendSuccess(false);
     
     try {
-      // 🔑 CRÍTICO: Múltiples estrategias para obtener el estado de verificación actualizado
+      // 🔑 CRÍTICO: El problema es que cuando el usuario verifica en el navegador,
+      // la sesión de la app no se actualiza automáticamente.
+      // Necesitamos forzar una actualización completa de la sesión.
       logger.dev('🔄 [Verificación] Verificando estado del email...');
       
       let user = null;
       let emailConfirmed = false;
+      const email = form.email;
       
-      // Estrategia 1: refreshSession() para obtener un nuevo JWT
-      logger.dev('🔄 [Verificación] Estrategia 1: refreshSession...');
+      // Estrategia 1: Cerrar sesión actual y hacer una nueva con getUser()
+      // Esto fuerza al servidor a darnos los datos más recientes
+      logger.dev('🔄 [Verificación] Estrategia 1: Forzando refresh de sesión...');
+      
+      // Primero intentamos refreshSession que debería obtener un nuevo JWT
       const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
       
       if (!refreshError && refreshData?.user) {
         user = refreshData.user;
         emailConfirmed = !!user.email_confirmed_at;
-        logger.dev('📧 [Verificación] refreshSession - email_confirmed_at:', user.email_confirmed_at);
+        logger.dev('📧 [Verificación] refreshSession resultado:', {
+          email: user.email,
+          email_confirmed_at: user.email_confirmed_at,
+          emailConfirmed
+        });
+      } else {
+        logger.dev('⚠️ [Verificación] refreshSession error o sin usuario:', refreshError?.message);
       }
       
-      // Estrategia 2: Si refreshSession no muestra verificado, intentar getUser()
-      // getUser() hace una llamada directa al servidor de auth
+      // Estrategia 2: getUser() hace llamada directa al servidor
       if (!emailConfirmed) {
-        logger.dev('🔄 [Verificación] Estrategia 2: getUser (server call)...');
+        logger.dev('🔄 [Verificación] Estrategia 2: getUser (llamada al servidor)...');
         const { data: userData, error: getUserError } = await supabase.auth.getUser();
         
         if (!getUserError && userData?.user) {
           user = userData.user;
           emailConfirmed = !!user.email_confirmed_at;
-          logger.dev('📧 [Verificación] getUser - email_confirmed_at:', user.email_confirmed_at);
+          logger.dev('📧 [Verificación] getUser resultado:', {
+            email: user.email,
+            email_confirmed_at: user.email_confirmed_at,
+            emailConfirmed
+          });
+        } else {
+          logger.dev('⚠️ [Verificación] getUser error:', getUserError?.message);
         }
       }
       
-      // Estrategia 3: Si aún no detecta, esperar un momento y reintentar
-      if (!emailConfirmed && user) {
-        logger.dev('🔄 [Verificación] Estrategia 3: Esperando propagación...');
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      // Estrategia 3: Si no tenemos sesión válida, necesitamos que el usuario
+      // haga sign in de nuevo después de verificar
+      if (!emailConfirmed && !user) {
+        logger.dev('🔄 [Verificación] Estrategia 3: No hay sesión, verificando estado en servidor...');
         
-        // Hacer sign out y sign in para forzar una sesión completamente nueva
-        const currentSession = await supabase.auth.getSession();
-        if (currentSession.data.session) {
-          const { data: finalRefresh } = await supabase.auth.refreshSession();
-          if (finalRefresh?.user?.email_confirmed_at) {
-            user = finalRefresh.user;
-            emailConfirmed = true;
-            logger.dev('📧 [Verificación] Reintento exitoso - email_confirmed_at:', user.email_confirmed_at);
-          }
+        // Intentar verificar el estado haciendo un intento de login
+        // Si el email no está verificado, Supabase rechazará el login
+        // Si está verificado, el login funcionará
+        setError('Tu sesión ha expirado. Por favor, inicia sesión de nuevo para continuar.');
+        setStep(1); // Volver al paso inicial
+        return;
+      }
+      
+      // Estrategia 4: Esperar propagación y reintentar
+      if (!emailConfirmed && user) {
+        logger.dev('🔄 [Verificación] Estrategia 4: Esperando 3s y reintentando...');
+        setError('Verificando... espera un momento.');
+        
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Reintentar con getUser
+        const { data: retryData } = await supabase.auth.getUser();
+        if (retryData?.user?.email_confirmed_at) {
+          user = retryData.user;
+          emailConfirmed = true;
+          logger.dev('📧 [Verificación] Reintento exitoso:', user.email_confirmed_at);
         }
+        
+        setError('');
       }
       
       if (emailConfirmed && user) {
-        logger.dev('✅ [Verificación] Email confirmado en:', user.email_confirmed_at);
+        logger.dev('✅ [Verificación] Email CONFIRMADO:', user.email_confirmed_at);
         setUserCreated(user);
         setStep(4); // Ir al paso de datos del perfil
       } else {
-        logger.dev('❌ [Verificación] Email aún no verificado. user:', user?.email, 'email_confirmed_at:', user?.email_confirmed_at);
-        setError('El correo aún no ha sido verificado. Revisa tu bandeja de entrada y vuelve a intentarlo en unos segundos.');
+        logger.dev('❌ [Verificación] Email NO verificado. Estado actual:', {
+          userExists: !!user,
+          email: user?.email,
+          email_confirmed_at: user?.email_confirmed_at
+        });
+        setError(
+          'El correo aún no ha sido verificado. ' +
+          'Asegúrate de pulsar el enlace del correo y luego vuelve aquí. ' +
+          'Si ya lo hiciste, espera unos segundos e inténtalo de nuevo.'
+        );
       }
     } catch (err) {
       logger.error('❌ [Verificación] Error:', err);
-      setError('Error al verificar el correo: ' + err.message);
+      setError('Error al verificar: ' + err.message);
     } finally {
       setCheckingVerification(false);
     }
