@@ -48,6 +48,103 @@ export default function RegisterPage() {
   // Ref para evitar que re-renders interrumpan el guardado
   const isSavingRef = useRef(false);
   
+  // Ref para evitar procesar tokens múltiples veces
+  const processedTokensRef = useRef(false);
+  
+  // 🔑 CRÍTICO: Procesar tokens de verificación de email en el hash de la URL
+  // Cuando el usuario pulsa el link del email, Supabase redirige aquí con tokens
+  useEffect(() => {
+    const processEmailVerificationTokens = async () => {
+      // Evitar procesar múltiples veces
+      if (processedTokensRef.current) return;
+      
+      const hash = window.location.hash;
+      if (!hash) return;
+      
+      // Verificar si hay tokens de verificación
+      // Los links de verificación contienen: #access_token=...&type=signup o type=email_change
+      if (!hash.includes('access_token') && !hash.includes('type=')) {
+        return;
+      }
+      
+      processedTokensRef.current = true;
+      logger.dev('📧 [Verificación Email] Detectados tokens en URL hash');
+      
+      try {
+        setLoading(true);
+        setError('');
+        
+        const hashParams = new URLSearchParams(hash.substring(1));
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+        const type = hashParams.get('type');
+        const errorParam = hashParams.get('error');
+        const errorDescription = hashParams.get('error_description');
+        
+        // Manejar errores de Supabase
+        if (errorParam) {
+          logger.error('❌ [Verificación Email] Error de Supabase:', errorParam, errorDescription);
+          setError(`Error de verificación: ${errorDescription || errorParam}`);
+          setLoading(false);
+          return;
+        }
+        
+        logger.dev('📧 [Verificación Email] Tipo:', type, 'Token presente:', !!accessToken);
+        
+        if (accessToken) {
+          // Establecer la sesión con los tokens
+          const { data, error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken || ''
+          });
+          
+          if (sessionError) {
+            logger.error('❌ [Verificación Email] Error estableciendo sesión:', sessionError);
+            setError('Error al verificar el email. Por favor, intenta de nuevo.');
+            setLoading(false);
+            return;
+          }
+          
+          logger.dev('✅ [Verificación Email] Sesión establecida:', data?.user?.email);
+          
+          // Verificar que el email está confirmado
+          const user = data?.user;
+          if (user?.email_confirmed_at) {
+            logger.dev('✅ [Verificación Email] Email verificado correctamente:', user.email_confirmed_at);
+            setUserCreated(user);
+            setForm(prev => ({ ...prev, email: user.email || prev.email }));
+            setStep(4); // Ir al paso de completar perfil
+          } else {
+            logger.warn('⚠️ [Verificación Email] Email aún no verificado después de setSession');
+            // Intentar refrescar la sesión
+            const { data: refreshData } = await supabase.auth.refreshSession();
+            if (refreshData?.user?.email_confirmed_at) {
+              setUserCreated(refreshData.user);
+              setForm(prev => ({ ...prev, email: refreshData.user.email || prev.email }));
+              setStep(4);
+            } else {
+              setError('El email no se pudo verificar. Por favor, intenta de nuevo.');
+            }
+          }
+        }
+        
+        // Limpiar el hash de la URL para evitar reprocesamiento
+        if (window.history?.replaceState) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          logger.dev('🧹 [Verificación Email] Hash limpiado de la URL');
+        }
+        
+      } catch (err) {
+        logger.error('❌ [Verificación Email] Error procesando tokens:', err);
+        setError('Error al procesar la verificación: ' + err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    processEmailVerificationTokens();
+  }, []);
+  
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { signUp, signInWithGoogle, signInWithApple, registroCompleto, loading: authLoading } = useAuth();
