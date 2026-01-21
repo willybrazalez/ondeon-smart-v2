@@ -6,14 +6,18 @@
         "appID": "K4TADJ2262.com.ondeon.smart",
         "paths": [
           "/registro",
+          "/registro/",
           "/registro/*",
-          "/registro?*",
           "/login",
+          "/login/",
           "/login/*",
-          "/login?*"
+          "/*"
         ]
       }
     ]
+  },
+  "activitycontinuation": {
+    "apps": ["K4TADJ2262.com.ondeon.smart"]
   },
   "webcredentials": {
     "apps": ["K4TADJ2262.com.ondeon.smart"]
