@@ -67,6 +67,13 @@ export default function LoginPage() {
         if (session?.user) {
           logger.dev('🔐 [LoginPage] Usuario ya autenticado detectado:', session.user.email);
           
+          // 🔐 SEGURIDAD: Verificar primero si el email está confirmado
+          if (!session.user.email_confirmed_at) {
+            logger.dev('📧 [LoginPage] Email NO verificado, redirigiendo a verificación');
+            navigate('/registro?continue=true&verify=true');
+            return;
+          }
+          
           // Verificar estado de registro en la BD
           const { data: userData, error: userError } = await supabase
             .from('usuarios')
@@ -135,6 +142,14 @@ export default function LoginPage() {
           
           window.history.replaceState(null, '', window.location.pathname);
           
+          // 🔐 SEGURIDAD: Verificar primero si el email está confirmado
+          // Nota: OAuth providers (Google, Apple) siempre tienen email verificado
+          if (!data.user.email_confirmed_at) {
+            logger.dev('📧 [OAuth] Email NO verificado, redirigiendo a verificación');
+            navigate('/registro?continue=true&verify=true');
+            return;
+          }
+          
           // 🔑 Usar maybeSingle() para evitar error cuando el usuario no existe en la BD
           const { data: userData, error: userError } = await supabase
             .from('usuarios')
@@ -186,6 +201,13 @@ export default function LoginPage() {
       const { data: { user: currentUser } } = await supabase.auth.getUser();
       if (!currentUser) {
         throw new Error('No se pudo obtener el usuario autenticado');
+      }
+      
+      // 🔐 SEGURIDAD: Verificar si el email está confirmado ANTES de cualquier navegación
+      if (!currentUser.email_confirmed_at) {
+        logger.dev('📧 [Seguridad] Email NO verificado, redirigiendo a verificación');
+        navigate('/registro?continue=true&verify=true');
+        return;
       }
       
       // Verificar si completó registro
@@ -241,6 +263,13 @@ export default function LoginPage() {
       logger.dev('🔐 [OAuth] Sesión establecida exitosamente');
       
       await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // 🔐 SEGURIDAD: Verificar primero si el email está confirmado
+      if (!data.user.email_confirmed_at) {
+        logger.dev('📧 [OAuth] Email NO verificado, redirigiendo a verificación');
+        navigate('/registro?continue=true&verify=true');
+        return;
+      }
       
       const { data: userData, error: userError } = await supabase
         .from('usuarios')

@@ -49,14 +49,11 @@ const BottomNavigation = ({ className = '' }) => {
   ];
 
   return (
-    <nav className={`
-      fixed bottom-0 left-0 right-0 z-50
-      ${className}
-    `}>
-      {/* Fondo con glassmorphism */}
-      <div className="absolute inset-0 bg-[#0d1117]/90 backdrop-blur-2xl border-t border-white/[0.06]" />
-      
-      <div className="relative flex items-end justify-around h-[70px] max-w-md mx-auto px-1 pb-safe">
+      <nav 
+        className={`fixed left-0 right-0 bottom-0 z-50 bg-[#0d1117] border-t border-white/[0.06] ${className}`}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
+      <div className="flex items-center justify-around h-[58px] max-w-md mx-auto px-1">
         {navItems.map((item) => {
           const isActive = currentPath === item.path;
           const Icon = item.icon;

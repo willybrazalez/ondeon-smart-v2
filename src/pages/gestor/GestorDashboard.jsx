@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import { useSubscription, SUBSCRIPTION_STATUS } from '@/hooks/useSubscription';
 import { stripeApi } from '@/lib/stripeApi';
 import { supabase } from '@/lib/supabase';
@@ -154,12 +155,28 @@ const GestorDashboard = () => {
 
   // Email del usuario para mostrar en el header
   const displayEmail = user?.email || profileData.email || 'Usuario';
-
-  // Forzar tema oscuro inicialmente
+  
+  // Usar el sistema de temas correctamente
+  const { theme, setTheme } = useTheme();
+  const previousThemeRef = React.useRef(theme);
+  
+  // Forzar tema oscuro en este dashboard y restaurar al salir
   useEffect(() => {
-    document.documentElement.classList.add('dark');
-    document.documentElement.classList.remove('light');
-  }, []);
+    // Guardar el tema actual
+    previousThemeRef.current = theme;
+    
+    // Forzar tema oscuro para este dashboard
+    if (theme !== 'dark') {
+      setTheme('dark');
+    }
+    
+    // Restaurar el tema anterior al desmontar (opcional - comentar si siempre debe ser oscuro)
+    // return () => {
+    //   if (previousThemeRef.current !== 'dark') {
+    //     setTheme(previousThemeRef.current);
+    //   }
+    // };
+  }, []); // Solo ejecutar al montar
 
   // Calcular si puede modificar el establecimiento (1 vez al día)
   const canEditEstablecimiento = () => {

@@ -200,20 +200,10 @@ const AdHistoryPage = () => {
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 25, filter: 'blur(4px)' }}
-      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-      transition={{ duration: 0.6, ease: "circOut" }}
-      className="p-4 sm:p-6 md:p-8"
-    >
-      <motion.h1 
-        className="text-4xl sm:text-5xl font-sans font-bold text-black dark:text-transparent dark:bg-clip-text dark:bg-gradient-to-r dark:from-primary/90 dark:via-[#A2D9F7]/80 dark:to-accent/90 mb-10 text-center"
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2, duration: 0.6 }}
-      >
+    <div className="p-4 sm:p-6 md:p-8">
+      <h1 className="text-4xl sm:text-5xl font-sans font-bold text-black dark:text-transparent dark:bg-clip-text dark:bg-gradient-to-r dark:from-primary/90 dark:via-[#A2D9F7]/80 dark:to-accent/90 mb-10 text-center">
         Historial de reproducción
-      </motion.h1>
+      </h1>
 
       <Card useCleanStyle={true} className="animate-clean-pulse" style={{animationDuration: '7.5s'}}>
         <CardHeader>
@@ -399,7 +389,7 @@ const AdHistoryPage = () => {
           )}
         </CardContent>
       </Card>
-    </motion.div>
+    </div>
   );
 };
 

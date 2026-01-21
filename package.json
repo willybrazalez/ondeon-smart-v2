@@ -12,14 +12,13 @@
     "start": "vite preview",
     "test": "echo \"No tests specified\" && exit 0",
     "check-deploy": "node scripts/check-deploy.cjs",
-    "cap:sync": "npm run build && npx cap sync",
-    "cap:android": "npm run build && npx cap sync android && npx cap open android",
-    "cap:ios": "npm run build && npx cap sync ios && npx cap open ios",
-    "cap:run:android": "npm run build && npx cap run android",
-    "cap:run:ios": "npm run build && npx cap run ios",
-    "mobile:android": "npx cap run android -l --external --host=0.0.0.0",
-    "mobile:ios": "npx cap run ios -l --external --host=0.0.0.0",
-    "mobile:both": "echo 'Usa npm run dev y abre Chrome DevTools (F12) en modo dispositivo'"
+    "ios": "npm run build && npx cap sync ios && npx cap run ios",
+    "ios:live": "npx cap run ios -l --external",
+    "ios:open": "npx cap open ios",
+    "android": "npm run build && npx cap sync android && npx cap run android",
+    "android:live": "npx cap run android -l --external",
+    "android:open": "npx cap open android",
+    "sync": "npm run build && npx cap sync"
   },
   "dependencies": {
     "@capacitor/android": "^8.0.1",
@@ -55,7 +54,8 @@
     "react-icons": "^5.5.0",
     "react-router-dom": "^6.16.0",
     "tailwind-merge": "^1.14.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "ts-interface-checker": "^1.0.2"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.1",

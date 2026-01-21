@@ -5,8 +5,8 @@ const config: CapacitorConfig = {
   appName: 'Ondeon Smart',
   webDir: 'dist',
   server: {
-    // LIVE RELOAD ACTIVADO - Comentar para producción
-    url: 'http://localhost:5173',
+    // Para LIVE RELOAD: descomentar url y ejecutar npm run dev en otra terminal
+    // url: 'http://localhost:5173',
     cleartext: true,
     androidScheme: 'https'
   },
@@ -34,11 +34,10 @@ const config: CapacitorConfig = {
     }
   },
   ios: {
-    contentInset: 'automatic',
+    contentInset: 'never',
     preferredContentMode: 'mobile',
     scheme: 'ondeon-smart',
     backgroundColor: '#0a0e14',
-    // WebView con fondo oscuro
     webContentsDebuggingEnabled: true
   },
   android: {

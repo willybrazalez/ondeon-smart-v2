@@ -7,33 +7,92 @@ import logger from '@/lib/logger'
 // ============================================================================
 // CAPACITOR DEEP LINK HANDLER - Para OAuth callback
 // ============================================================================
+// Flag para evitar procesar múltiples veces la misma URL
+let processedLaunchUrl = false;
+let processedHashUrl = false;
+
+// 🔑 Función para procesar OAuth tokens desde cualquier URL
+const processOAuthUrl = async (url, handleOAuthCallback, closeBrowser = true) => {
+  if (!url) return false;
+  
+  // Verificar si es un callback de OAuth
+  if (url.includes('access_token=') || url.includes('error=') || url.includes('code=')) {
+    logger.dev('🔐 [OAuth] Procesando URL con tokens:', url.substring(0, 50) + '...');
+    
+    // Cerrar el browser in-app si está abierto
+    if (closeBrowser) {
+      try {
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.close();
+        logger.dev('🔐 [OAuth] Browser cerrado');
+      } catch (e) {
+        // Ignorar si no hay browser abierto
+      }
+    }
+    
+    // Procesar el callback
+    await handleOAuthCallback(url);
+    return true;
+  }
+  return false;
+};
+
 const setupDeepLinkHandler = async (handleOAuthCallback) => {
-  if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
+  const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
+  logger.dev('🔧 [DeepLink] Configurando handler - isNative:', isNative);
+  
+  if (isNative) {
     try {
       const { App } = await import('@capacitor/app');
-      const { Browser } = await import('@capacitor/browser');
       
-      // Escuchar deep links (OAuth callback)
-      App.addListener('appUrlOpen', async ({ url }) => {
-        logger.dev('🔗 Deep link recibido:', url);
-        
-        // Verificar si es un callback de OAuth (contiene access_token o error)
-        if (url.includes('access_token=') || url.includes('error=') || url.includes('code=')) {
-          // Cerrar el browser in-app
-          try {
-            await Browser.close();
-          } catch (e) {
-            // Ignorar si no hay browser abierto
-          }
+      // 🔑 CRÍTICO: Verificar si la app fue abierta con un deep link (launch URL)
+      if (!processedLaunchUrl) {
+        processedLaunchUrl = true;
+        try {
+          const launchUrl = await App.getLaunchUrl();
+          logger.dev('🚀 [DeepLink] Launch URL resultado:', launchUrl);
           
-          // Procesar el callback de OAuth
-          await handleOAuthCallback(url);
+          if (launchUrl?.url) {
+            const processed = await processOAuthUrl(launchUrl.url, handleOAuthCallback);
+            if (processed) {
+              logger.dev('✅ [DeepLink] Launch URL procesada como OAuth');
+              return;
+            }
+          }
+        } catch (e) {
+          logger.warn('⚠️ [DeepLink] Error obteniendo launch URL:', e);
         }
+      }
+      
+      // Escuchar deep links futuros (OAuth callback)
+      App.addListener('appUrlOpen', async ({ url }) => {
+        logger.dev('🔗 [DeepLink] appUrlOpen evento recibido:', url);
+        await processOAuthUrl(url, handleOAuthCallback);
       });
       
-      logger.dev('✅ Deep link handler configurado');
+      logger.dev('✅ [DeepLink] Handler configurado para plataforma nativa');
     } catch (e) {
-      logger.warn('⚠️ No se pudo configurar deep link handler:', e);
+      logger.warn('⚠️ [DeepLink] No se pudo configurar handler:', e);
+    }
+  }
+  
+  // 🔑 FALLBACK: Verificar si hay tokens en el hash de la URL actual
+  // Esto funciona tanto en web como en nativo si Capacitor pasa los tokens via hash
+  if (!processedHashUrl && typeof window !== 'undefined') {
+    processedHashUrl = true;
+    const currentUrl = window.location.href;
+    const hash = window.location.hash;
+    
+    if (hash && (hash.includes('access_token=') || hash.includes('error='))) {
+      logger.dev('🔐 [DeepLink] Tokens detectados en URL hash actual');
+      await processOAuthUrl(currentUrl, handleOAuthCallback, false);
+      
+      // Limpiar el hash de la URL para evitar reprocesamiento
+      if (window.history?.replaceState) {
+        const cleanUrl = window.location.pathname + window.location.search;
+        window.history.replaceState(null, '', cleanUrl);
+        logger.dev('🧹 [DeepLink] Hash limpiado de URL');
+      }
     }
   }
 };
@@ -73,6 +132,7 @@ export const AuthProvider = ({ children }) => {
   // Estado de registro
   const [registroCompleto, setRegistroCompleto] = useState(null) // null=no verificado, true/false
   const [userRole, setUserRole] = useState(null)             // 'admin' | 'user'
+  const [emailConfirmed, setEmailConfirmed] = useState(null)  // null=no verificado, true/false
   
   // Reproducción manual (bloquea controles)
   const [isManualPlaybackActive, setIsManualPlaybackActive] = useState(false)
@@ -89,15 +149,36 @@ export const AuthProvider = ({ children }) => {
   
   const handleOAuthCallback = useCallback(async (url) => {
     try {
-      logger.dev('🔐 Procesando OAuth callback:', url);
+      logger.dev('🔐 [OAuth] Procesando callback:', url?.substring(0, 100));
       
-      // Extraer tokens del URL (puede estar en hash o query params)
-      const urlObj = new URL(url.replace('ondeon-smart:/', 'https://app'));
+      if (!url) {
+        logger.warn('⚠️ [OAuth] URL vacía');
+        return;
+      }
       
-      // Los tokens pueden estar en el hash (#) o en query params (?)
-      let params = new URLSearchParams(urlObj.hash.substring(1)); // Intentar hash primero
-      if (!params.get('access_token')) {
-        params = new URLSearchParams(urlObj.search); // Luego query params
+      // Extraer tokens del URL - manejar múltiples formatos
+      let params;
+      
+      // Formato 1: ondeon-smart://login#access_token=...
+      // Formato 2: https://app.com/callback#access_token=...
+      // Formato 3: capacitor://localhost/#access_token=...
+      
+      const hashIndex = url.indexOf('#');
+      if (hashIndex !== -1) {
+        const hashPart = url.substring(hashIndex + 1);
+        params = new URLSearchParams(hashPart);
+        logger.dev('🔐 [OAuth] Tokens extraídos del hash');
+      } else {
+        // Intentar como query params
+        const queryIndex = url.indexOf('?');
+        if (queryIndex !== -1) {
+          const queryPart = url.substring(queryIndex + 1);
+          params = new URLSearchParams(queryPart);
+          logger.dev('🔐 [OAuth] Tokens extraídos de query params');
+        } else {
+          logger.warn('⚠️ [OAuth] No se encontraron tokens en la URL');
+          return;
+        }
       }
       
       const accessToken = params.get('access_token');
@@ -242,9 +323,15 @@ export const AuthProvider = ({ children }) => {
       if (!authUser) {
         logger.dev('ℹ️ No hay usuario autenticado o timeout')
         setRegistroCompleto(false)
+        setEmailConfirmed(false)
         registroCompletoSet = true
         return
       }
+      
+      // 🔐 SEGURIDAD: Establecer estado de verificación de email
+      const isEmailConfirmed = authUser.email_confirmed_at !== null
+      setEmailConfirmed(isEmailConfirmed)
+      logger.dev('📧 Email confirmado:', isEmailConfirmed)
       
       // Consulta directa RÁPIDA para verificar estado de registro (con timeout)
       const quickCheckResult = await withTimeout(
@@ -486,6 +573,7 @@ export const AuthProvider = ({ children }) => {
     setActiveProgramaciones([])
     setUserRole(null)
     setRegistroCompleto(null)
+    setEmailConfirmed(null)
     initLoadedRef.current = false
     lastAuthUserIdRef.current = null
   }
@@ -700,6 +788,7 @@ export const AuthProvider = ({ children }) => {
     // Estados
     userRole,           // 'admin' | 'user'
     registroCompleto,
+    emailConfirmed,     // true si email_confirmed_at no es null
     
     // Auth methods
     signUp,
@@ -707,6 +796,7 @@ export const AuthProvider = ({ children }) => {
     signInWithGoogle,
     signInWithApple,
     signOut,
+    logout: signOut, // Alias para compatibilidad
     
     // Profile
     loadUserProfile,

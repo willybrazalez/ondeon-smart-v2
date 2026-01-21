@@ -266,12 +266,7 @@ const NewAdPage = () => {
     currentStep === STEPS_CONFIG.length;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 25, filter: 'blur(4px)' }}
-      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-      transition={{ duration: 0.6, ease: "circOut" }}
-      className="p-4 sm:p-6 md:p-8"
-    >
+    <div className="p-4 sm:p-6 md:p-8">
       <h1 className="text-4xl sm:text-5xl font-sans font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary/90 via-[#A2D9F7]/80 to-accent/90 mb-3 text-center animate-clean-float">
         Asistente de Creación de Anuncios
       </h1>
@@ -305,7 +300,7 @@ const NewAdPage = () => {
           </Button>
         </CardFooter>
       </Card>
-    </motion.div>
+    </div>
   );
 };
 

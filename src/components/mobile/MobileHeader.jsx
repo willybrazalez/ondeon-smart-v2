@@ -1,6 +1,5 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
 import { LogOut, Circle, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ThemeToggle from '@/components/ThemeToggle';
@@ -29,17 +28,15 @@ const MobileHeader = ({
     || t('common.user');
 
   return (
-    <motion.header
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
+    <header
       className={`
         fixed top-0 left-0 right-0 z-50
         ${transparent 
           ? 'bg-transparent' 
-          : 'bg-background/90 backdrop-blur-xl border-b border-white/5'}
-        safe-area-top
+          : 'bg-[#0d1117] border-b border-white/5'}
         ${className}
       `}
+      style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
     >
       <div className="flex items-center justify-between h-14 px-4">
         {/* Logo */}
@@ -81,7 +78,7 @@ const MobileHeader = ({
           </Button>
         </div>
       </div>
-    </motion.header>
+    </header>
   );
 };
 

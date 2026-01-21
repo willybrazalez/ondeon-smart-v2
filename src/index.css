@@ -3,6 +3,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Animación para splash screen */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
 @layer base {
   /* Solo modo oscuro - tema único Ondeon */
   :root,
@@ -35,15 +41,25 @@
 @layer base {
   * {
     @apply border-border;
+    /* Desactivar overscroll bounce en todos los elementos */
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: auto;
+  }
+  html {
+    background-color: #0a0e14;
+    overscroll-behavior: none;
   }
   body {
     @apply bg-background text-foreground;
+    overscroll-behavior: none;
+    background-color: #0a0e14;
   }
   html, body, #root {
     height: 100%;
     margin: 0;
     padding: 0;
-    overflow-x: hidden; 
+    overflow-x: hidden;
+    overscroll-behavior: none;
   }
   /* Eliminar bordes de imágenes */
   img {

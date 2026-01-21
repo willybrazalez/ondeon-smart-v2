@@ -47,6 +47,7 @@ import { PermissionGated } from '@/components/RoleProtectedRoute';
 import ReactivePlayButton from '@/components/player/ReactivePlayButton';
 import { LanguageProvider } from '@/contexts/LanguageContext';
 import { channelsApi } from '@/lib/api';
+import SplashScreen from '@/components/SplashScreen';
 import { supabase } from '@/lib/supabase';
 import { useAutoDj } from './hooks/useAutodjHook';
 import autoDj from './services/autoDjService';
@@ -61,9 +62,13 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import MobileLayout from '@/layouts/MobileLayout';
 import BottomNavigation from '@/components/mobile/BottomNavigation';
 
-// Siempre es plataforma web/móvil (Electron eliminado)
-export const getIsWebPlatform = () => true;
-export const isWebPlatform = true;
+// Detectar si estamos en web o en Capacitor nativo
+export const getIsWebPlatform = () => {
+  // En Capacitor nativo (iOS/Android), esto devuelve false
+  // En web browser, esto devuelve true
+  return !(window.Capacitor?.isNativePlatform?.());
+};
+export const isWebPlatform = getIsWebPlatform();
 
 // Función para obtener elementos de navegación
 const getNavItemsForRole = (hasPermission, t) => {
@@ -362,6 +367,12 @@ const VolumeControl = ({ side, icon: Icon, value, onChange, disabled = false }) 
 function AppContent() {
   const location = useLocation();
   
+  // 🎬 Estado del splash screen
+  const [showSplash, setShowSplash] = useState(true);
+  
+  // 📜 Ref para el contenedor principal de scroll
+  const scrollContainerRef = useRef(null);
+  
   // 📱 Detectar dispositivo móvil
   const { isMobile, isTablet, isTouchDevice } = useIsMobile();
   
@@ -383,6 +394,18 @@ function AppContent() {
     });
   }, [isWeb, location.pathname, currentPath]);
   
+  // 📜 Resetear scroll al navegar entre páginas
+  React.useEffect(() => {
+    // Usar el ref directamente - más confiable que querySelector
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
+    // Resetear el scroll del window y document
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [currentPath]);
+  
   // 🔧 Usar currentPath (normalizado) para todas las comparaciones de rutas
   const isAuthRoute = currentPath === '/login' ||
                        currentPath.startsWith('/registro') ||
@@ -398,8 +421,12 @@ function AppContent() {
   const { roleName, hasPermission, uiConfig, userRole } = useRole();
   const navigate = useNavigate();
   
-  // Todos los usuarios autenticados pueden usar el reproductor
-  const shouldEnablePlayer = !!user;
+  // 🔐 SEGURIDAD: Usuario completamente autenticado = tiene user + registro completo
+  // Solo usuarios con isFullyAuthenticated pueden acceder al Player Dashboard
+  const isFullyAuthenticated = user && registroCompleto === true;
+  
+  // Solo usuarios completamente autenticados pueden usar el reproductor
+  const shouldEnablePlayer = isFullyAuthenticated;
 
   // 🔑 CRÍTICO: Redirigir a registro si el usuario no completó el onboarding
   React.useEffect(() => {
@@ -408,33 +435,48 @@ function AppContent() {
     // 2. No estamos cargando
     // 3. registroCompleto es explícitamente false (no null/undefined)
     // 4. No estamos ya en la página de registro
+    // 5. NO estamos en plataforma nativa (en nativo el flujo es diferente)
     const isRegistroRoute = currentPath.startsWith('/registro');
     const isLoginRoute = currentPath === '/login';
     const isAuthRouteLocal = isRegistroRoute || isLoginRoute || currentPath === '/descarga';
     
-    if (user && !authLoading && registroCompleto === false && !isAuthRouteLocal) {
+    // Detectar si es plataforma nativa (Capacitor)
+    const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
+    
+    // 🔑 En apps nativas, NO redirigir automáticamente - AuthContext maneja el flujo
+    if (user && !authLoading && registroCompleto === false && !isAuthRouteLocal && !isNative) {
       console.log('🔄 [Registro] Usuario sin registro completo, redirigiendo a /registro');
       navigate('/registro?continue=true');
     }
   }, [user, authLoading, registroCompleto, currentPath, navigate]);
 
-  // 🔑 FALLBACK: Si registroCompleto no es true después de 3 segundos, redirigir a registro
+  // 🔑 FALLBACK: Si registroCompleto es explícitamente FALSE después de un timeout, redirigir a registro
   // Esto evita que el usuario se quede atascado en "Verificando cuenta..."
   // También actúa como red de seguridad si el redirect normal falla
+  // ⚠️ IMPORTANTE: NO aplicar si registroCompleto es null (aún cargando)
+  // Solo aplicar si es explícitamente false (ya verificado y sin registro)
   React.useEffect(() => {
     const isRegistroRoute = currentPath.startsWith('/registro');
     const isLoginRoute = currentPath === '/login';
     const isAuthRouteLocal = isRegistroRoute || isLoginRoute || currentPath === '/descarga';
     
-    // Solo aplicar si hay usuario, no estamos en ruta de auth, y registroCompleto NO es true
-    if (user && !isAuthRouteLocal && registroCompleto !== true && !authLoading && isWeb) {
-      console.log('⏳ [Fallback] registroCompleto no es true, iniciando timeout de seguridad (3s)...');
+    // Detectar si es plataforma nativa (Capacitor)
+    const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
+    
+    // 🔑 CRÍTICO: Solo aplicar fallback si:
+    // 1. Hay usuario
+    // 2. No estamos en ruta de auth
+    // 3. registroCompleto es EXPLÍCITAMENTE false (no null)
+    // 4. No estamos cargando
+    // 5. Es entorno web (no nativo - en nativo AuthContext maneja todo)
+    if (user && !isAuthRouteLocal && registroCompleto === false && !authLoading && isWeb && !isNative) {
+      console.log('⏳ [Fallback] registroCompleto=false (verificado), iniciando timeout de seguridad (3s)...');
       
       const timeoutId = setTimeout(() => {
         // Después de 3 segundos, si aún no es true, redirigir a registro
         console.log('⚠️ [Fallback] Timeout alcanzado - registroCompleto:', registroCompleto, '- redirigiendo a /registro');
         navigate('/registro?continue=true');
-      }, 3000); // Reducido a 3 segundos para evitar espera larga
+      }, 3000);
       
       return () => clearTimeout(timeoutId);
     }
@@ -510,6 +552,92 @@ function AppContent() {
       logger.dev('🧹 Estados limpiados - usuario deslogueado');
     }
   }, [user]);
+
+  // 📱 DEEP LINKING: Capturar tokens de verificación de email cuando la app se abre via custom URL scheme
+  useEffect(() => {
+    const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
+    if (!isNative) return;
+
+    let appUrlOpenListener = null;
+
+    const setupDeepLinkListener = async () => {
+      try {
+        const { App } = await import('@capacitor/app');
+        
+        // Listener para cuando la app se abre via deep link
+        appUrlOpenListener = await App.addListener('appUrlOpen', async ({ url }) => {
+          logger.dev('📱 [Deep Link] App abierta con URL:', url);
+          
+          // Verificar si es un deep link de verificación de email
+          // Supabase envía los tokens en el hash fragment: ondeon-smart://registro#access_token=xxx&refresh_token=xxx
+          if (url.includes('access_token') || url.includes('type=signup') || url.includes('type=email')) {
+            logger.dev('🔐 [Deep Link] Detectados tokens de verificación');
+            
+            try {
+              // Extraer el hash/query de la URL
+              const urlObj = new URL(url);
+              let hashParams = null;
+              
+              // Supabase puede enviar tokens en hash (#) o query (?)
+              if (urlObj.hash) {
+                hashParams = new URLSearchParams(urlObj.hash.substring(1));
+              } else if (urlObj.search) {
+                hashParams = new URLSearchParams(urlObj.search.substring(1));
+              }
+              
+              if (hashParams) {
+                const accessToken = hashParams.get('access_token');
+                const refreshToken = hashParams.get('refresh_token');
+                
+                if (accessToken) {
+                  logger.dev('🔐 [Deep Link] Procesando tokens de sesión...');
+                  
+                  // Establecer sesión con Supabase
+                  const { data, error } = await supabase.auth.setSession({
+                    access_token: accessToken,
+                    refresh_token: refreshToken || ''
+                  });
+                  
+                  if (error) {
+                    logger.error('❌ [Deep Link] Error estableciendo sesión:', error);
+                  } else {
+                    logger.dev('✅ [Deep Link] Sesión establecida:', data.user?.email);
+                    // Navegar a registro para continuar el flujo
+                    navigate('/registro?continue=true&verified=true');
+                  }
+                }
+              }
+            } catch (parseError) {
+              logger.error('❌ [Deep Link] Error parseando URL:', parseError);
+            }
+          } else if (url.includes('ondeon-smart://registro')) {
+            // Deep link simple sin tokens - navegar a registro
+            logger.dev('📱 [Deep Link] Navegando a registro');
+            navigate('/registro?continue=true');
+          }
+        });
+        
+        logger.dev('✅ [Deep Link] Listener de appUrlOpen configurado');
+        
+        // También verificar si la app fue lanzada con un deep link
+        const launchUrl = await App.getLaunchUrl();
+        if (launchUrl?.url) {
+          logger.dev('🚀 [Deep Link] App lanzada con URL:', launchUrl.url);
+          // El listener manejará esto
+        }
+      } catch (e) {
+        logger.warn('⚠️ [Deep Link] No se pudo configurar listener:', e);
+      }
+    };
+
+    setupDeepLinkListener();
+
+    return () => {
+      if (appUrlOpenListener) {
+        appUrlOpenListener.remove();
+      }
+    };
+  }, [navigate]);
 
   // 🔧 Actualizar estado de contenido programado - SOLO si el reproductor está habilitado
   useEffect(() => {
@@ -1154,14 +1282,14 @@ function AppContent() {
   // Detectar si estamos en una ruta de admin
   const isAdminRoute = currentPath.startsWith('/admin');
 
-  // 🔑 CRÍTICO: Mostrar loading mientras registroCompleto NO es true
-  // Esto evita el flash del reproductor antes de la redirección a /registro
+  // 🔐 SEGURIDAD: Mostrar loading mientras verificamos el estado del usuario
+  // Esto PREVIENE el flash del dashboard antes de la redirección
   // Se muestra cuando:
   // 1. Hay usuario autenticado
-  // 2. registroCompleto NO es true (puede ser null, undefined, o false)
+  // 2. registroCompleto aún es null/undefined (cargando) o es false
   // 3. No estamos en ruta de autenticación (login/registro)
-  // 4. Estamos en web
-  if (user && registroCompleto !== true && !isAuthRoute && isWeb) {
+  // ⚠️ IMPORTANTE: Aplica a TODAS las plataformas (web + nativo)
+  if (user && registroCompleto !== true && !isAuthRoute) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0a0e14]">
         <div className="text-center">
@@ -1174,16 +1302,25 @@ function AppContent() {
 
   // Determinar si mostrar UI móvil
   const showMobileUI = isMobile || isTablet;
-  const showHeader = user && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute;
-  const showNavigation = user && !isAuthRoute && !isAdminRoute;
+  // 🔐 Solo mostrar header/navegación para usuarios COMPLETAMENTE autenticados
+  const showHeader = isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute;
+  const showNavigation = isFullyAuthenticated && !isAuthRoute && !isAdminRoute;
 
   return (
     <div className={`relative min-h-screen text-foreground flex flex-col bg-background font-sans`}>
+      {/* 🎬 Splash Screen */}
+      {showSplash && (
+        <SplashScreen 
+          minDuration={2500} 
+          onFinish={() => setShowSplash(false)} 
+        />
+      )}
+      
       {/* 🔐 Modal de sesión cerrada */}
       <SessionClosedModal isOpen={sessionClosed} />
       
       {/* 🖥️ Background dinámico en rutas del reproductor (desktop y móvil) */}
-      {user && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && currentPath === '/' && (
+      {isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && currentPath === '/' && (
         <DynamicBackground 
           isPlaying={djState?.isPlaying || false} 
           theme={theme}
@@ -1279,17 +1416,25 @@ function AppContent() {
           </header>
         )}
 
-        <div className={`flex-1 relative overflow-y-auto overflow-x-hidden ${(isAuthRoute || !user || isAdminRoute || isWebDashboardRoute) ? 'pt-0' : showMobileUI ? 'pt-16' : 'pt-28'} ${showMobileUI && showNavigation ? 'pb-24' : ''}`} style={{ WebkitOverflowScrolling: 'touch' }}>
-          <main className={`${(isAuthRoute || !user || isAdminRoute || isWebDashboardRoute) 
+        <div 
+          ref={scrollContainerRef}
+          data-scroll-container
+          className={`flex-1 relative overflow-y-auto overflow-x-hidden ${(isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? '' : showMobileUI ? '' : 'pt-28'} ${showMobileUI && showNavigation ? 'pb-28' : ''}`} 
+          style={{ 
+            overscrollBehavior: 'none',
+            paddingTop: (isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? 0 : showMobileUI ? 'calc(env(safe-area-inset-top, 0px) + 56px)' : undefined
+          }}
+        >
+          <main className={`${(isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) 
             ? 'w-full mx-0 px-0 py-0 pb-0 max-w-none' 
             : showMobileUI 
               ? 'w-full px-0 py-0' 
               : 'w-full max-w-5xl mx-auto px-16 sm:px-20 md:px-24 py-6 pb-32'}`}>
             <PlayerProvider value={{ isPlaying: djState?.isPlaying || false, currentChannel: currentChannel || djState?.currentChannel, currentSong: djState?.currentSong }}>
             <Routes>
-              {user ? (
+              {isFullyAuthenticated ? (
                 <>
-                  {/* Rutas principales para usuarios autenticados */}
+                  {/* 🔐 Rutas PROTEGIDAS - Solo para usuarios con registro completo */}
                   <Route path="/" element={<PlayerPage />} />
                   <Route path="/canales" element={
                     <ChannelsPage 
@@ -1307,13 +1452,21 @@ function AppContent() {
                   <Route path="/gestor" element={<GestorDashboard />} />
                   <Route path="/registro" element={<RegisterPage />} />
                   
-                  {/* Redirigir /login a home si ya está autenticado */}
+                  {/* Redirigir /login a home si ya está completamente autenticado */}
                   <Route path="/login" element={<Navigate to="/" replace />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </>
+              ) : user ? (
+                <>
+                  {/* 🔄 Usuario autenticado pero SIN registro completo - solo acceso a registro */}
+                  <Route path="/registro" element={<RegisterPage />} />
+                  <Route path="/login" element={<LoginPage />} />
+                  {/* Cualquier otra ruta redirige a registro */}
+                  <Route path="*" element={<Navigate to="/registro?continue=true" replace />} />
+                </>
               ) : (
                 <>
-                  {/* Rutas para usuarios no autenticados */}
+                  {/* 🔓 Rutas públicas - usuarios no autenticados */}
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/registro" element={<RegisterPage />} />
                   <Route path="*" element={<LoginPage />} />
@@ -1323,8 +1476,8 @@ function AppContent() {
             </PlayerProvider>
           </main>
 
-          {/* Elementos del reproductor solo en la página principal Y con usuario autenticado Y fuera de admin */}
-          {currentPath === '/' && user && !channelsLoading && !isAuthRoute && !isAdminRoute && (
+          {/* Elementos del reproductor solo en la página principal Y con usuario COMPLETAMENTE autenticado Y fuera de admin */}
+          {currentPath === '/' && isFullyAuthenticated && !channelsLoading && !isAuthRoute && !isAdminRoute && (
             <>
               <PlayerControls
                 currentTrackInfo={currentTrackInfo}
@@ -1398,8 +1551,8 @@ function AppContent() {
           )}
         </div>
 
-        {/* Footer translúcido para evitar superposición (solo con usuario autenticado, fuera de admin y fuera de dashboards web) */}
-        {user && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && (
+        {/* Footer translúcido para evitar superposición (solo con usuario COMPLETAMENTE autenticado, fuera de admin y fuera de dashboards web) */}
+        {isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && (
           <footer className="fixed bottom-0 left-0 right-0 w-full h-32 z-40 pointer-events-none
             bg-gradient-to-t from-background/80 via-background/40 to-transparent backdrop-blur-sm">
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-auto">
@@ -1416,7 +1569,7 @@ function AppContent() {
         )}
 
         {/* 🖥️ Navegación inferior DESKTOP - Botones flotantes */}
-        {user && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && !showMobileUI && (
+        {isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && !showMobileUI && (
           <div className="fixed bottom-20 left-1/2 -translate-x-1/2 flex justify-center gap-12 z-50">
             <AnimatePresence>
               {getNavItemsForRole(hasPermission, t).map((item, index) => (

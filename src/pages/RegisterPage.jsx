@@ -50,20 +50,39 @@ export default function RegisterPage() {
   
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { signUp, signInWithGoogle, signInWithApple } = useAuth();
+  const { signUp, signInWithGoogle, signInWithApple, registroCompleto, loading: authLoading } = useAuth();
+  
   // Verificar si volvió del checkout cancelado o viene de login con registro incompleto
   useEffect(() => {
     if (searchParams.get('cancelled') === 'true') {
       setError('El proceso de pago fue cancelado. Puedes intentarlo de nuevo.');
     }
   }, [searchParams]);
+  
+  // 🔑 CRÍTICO: Si AuthContext ya sabe que el registro está completo, redirigir inmediatamente
+  // Esto evita la race condition donde RegisterPage consulta la BD de forma independiente
+  useEffect(() => {
+    if (!authLoading && registroCompleto === true) {
+      logger.dev('✅ [RegisterPage] AuthContext confirma registro completo, redirigiendo...');
+      navigate('/', { replace: true });
+    }
+  }, [authLoading, registroCompleto, navigate]);
 
   // Estado para usuarios que vienen de Electron sin sesión
   const [needsReAuth, setNeedsReAuth] = useState(false);
   const [reAuthProvider, setReAuthProvider] = useState('');
 
   // 🔑 CRÍTICO: Verificar sesión al cargar (para usuarios que vuelven de OAuth o login)
+  // ⚠️ IMPORTANTE: NO redirigir a / o /gestor aquí si el usuario tiene registro completo
+  // La redirección la maneja el useEffect de registroCompleto para evitar race conditions
   useEffect(() => {
+    // Si AuthContext ya confirmó registro completo, no hacer nada aquí
+    // El useEffect de arriba se encargará de la redirección
+    if (registroCompleto === true) {
+      logger.dev('🔄 [RegisterPage] registroCompleto=true, useEffect de arriba manejará redirección');
+      return;
+    }
+    
     const checkSessionOnLoad = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -97,39 +116,20 @@ export default function RegisterPage() {
           setIsOAuthUser(isOAuth);
           logger.dev('🔐 Proveedor de autenticación:', provider, '- Es OAuth:', isOAuth);
           
-          // 🔑 CRÍTICO: Verificar si el usuario ya tiene registro completo y suscripción activa
-          // Si es así, redirigir directamente al dashboard (no mostrar formulario)
+          // 🔑 CRÍTICO: Verificar si el usuario ya tiene registro completo
+          // PERO no redirigir desde aquí - esperar a que AuthContext lo haga
           const { data: userData, error: userError } = await supabase
             .from('usuarios')
             .select('id, registro_completo, establecimiento, telefono, sector_id, rol')
             .eq('auth_user_id', user.id)
             .single();
           
-          
+          // 🔑 Si tiene registro completo, NO redirigir aquí
+          // Esperar a que AuthContext se sincronice y el useEffect de registroCompleto lo maneje
+          // Esto EVITA el loop infinito de redirecciones
           if (!userError && userData?.registro_completo) {
-            logger.dev('✅ Usuario con registro completo detectado, verificando suscripción...');
-            
-            // 🔑 CRÍTICO: Verificar suscripción activa antes de permitir acceso
-            const { data: subscriptionData, error: subError } = await supabase
-              .from('suscripciones')
-              .select('estado')
-              .eq('usuario_id', userData.id)
-              .in('estado', ['active', 'trialing'])
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            
-            
-            // Si tiene suscripción activa/trial
-            if (subscriptionData) {
-              logger.dev('✅ Suscripción activa detectada, permitiendo acceso');
-              navigate('/', { replace: true });
-              return;
-            }
-            
-            // Sin suscripción activa - redirigir al dashboard
-            logger.dev('⚠️ Sin suscripción activa, redirigiendo al dashboard');
-            navigate('/gestor', { replace: true });
+            logger.dev('✅ [RegisterPage] BD dice registro completo, esperando AuthContext...');
+            // NO hacer navigate aquí - el useEffect de registroCompleto lo manejará
             return;
           }
           
@@ -143,8 +143,6 @@ export default function RegisterPage() {
           }));
           
           // 🔑 Si viene de login con ?continue=true, verificar qué paso le falta
-          const continueRegistration = searchParams.get('continue') === 'true';
-          
           if (continueRegistration) {
             logger.dev('🔄 Usuario viene de login para continuar registro');
             
@@ -175,7 +173,7 @@ export default function RegisterPage() {
     };
     
     checkSessionOnLoad();
-  }, [searchParams, navigate]);
+  }, [searchParams, navigate, registroCompleto, needsReAuth]);
 
 
   // 🌙 CRÍTICO: Forzar tema oscuro en la página de registro
@@ -214,6 +212,111 @@ export default function RegisterPage() {
     };
     loadSectores();
   }, []);
+
+  // 📧 DETECCIÓN AUTOMÁTICA DE VERIFICACIÓN DE EMAIL (Paso 3)
+  // Detecta cuando el usuario verifica su email desde otra pestaña/app
+  useEffect(() => {
+    // Solo ejecutar en el paso 3 (verificación de email)
+    if (step !== 3) return;
+    
+    let pollInterval = null;
+    let authSubscription = null;
+    let capacitorAppListener = null;
+    
+    logger.dev('📧 [Verificación] Iniciando detección automática de verificación de email');
+    
+    // Helper para verificar y avanzar
+    // 🔑 CRÍTICO: Usar refreshSession() para obtener datos actualizados del servidor
+    // getUser() puede devolver datos cacheados del JWT
+    const checkAndAdvance = async (source) => {
+      try {
+        // Forzar refresh de la sesión para obtener datos actualizados del servidor
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        
+        if (refreshError) {
+          logger.warn('⚠️ [Verificación] Error en refreshSession:', refreshError.message);
+          // Fallback a getUser si refreshSession falla
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user?.email_confirmed_at) {
+            logger.dev(`✅ [Verificación] Email verificado via ${source} (fallback)`);
+            setUserCreated(user);
+            setStep(4);
+            return true;
+          }
+          return false;
+        }
+        
+        const user = refreshData?.user;
+        if (user?.email_confirmed_at) {
+          logger.dev(`✅ [Verificación] Email verificado via ${source}`);
+          setUserCreated(user);
+          setStep(4);
+          return true;
+        }
+      } catch (e) {
+        logger.warn('⚠️ [Verificación] Error verificando estado:', e);
+      }
+      return false;
+    };
+    
+    // 1. Listener de cambios de auth (detecta USER_UPDATED)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'USER_UPDATED' && session?.user?.email_confirmed_at) {
+          logger.dev('✅ [Verificación] Email verificado via onAuthStateChange');
+          setUserCreated(session.user);
+          setStep(4);
+        }
+      }
+    );
+    authSubscription = subscription;
+    
+    // 2. Polling como fallback (cada 5 segundos)
+    pollInterval = setInterval(() => {
+      checkAndAdvance('polling');
+    }, 5000);
+    
+    // 3. Verificar al volver a la app (Page Visibility API)
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        logger.dev('👁️ [Verificación] App visible, verificando estado...');
+        await checkAndAdvance('visibilitychange');
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // 4. Verificar al enfocar la ventana (útil para navegadores de escritorio)
+    const handleFocus = async () => {
+      logger.dev('🎯 [Verificación] Ventana enfocada, verificando estado...');
+      await checkAndAdvance('focus');
+    };
+    window.addEventListener('focus', handleFocus);
+    
+    // 5. Soporte para Capacitor (iOS/Android) - detectar cuando vuelve de background
+    if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
+      import('@capacitor/app').then(({ App }) => {
+        capacitorAppListener = App.addListener('appStateChange', async ({ isActive }) => {
+          if (isActive) {
+            logger.dev('📱 [Verificación] App nativa activa, verificando estado...');
+            await checkAndAdvance('capacitor-appStateChange');
+          }
+        });
+        logger.dev('✅ [Verificación] Listener de Capacitor configurado');
+      }).catch(e => {
+        logger.warn('⚠️ [Verificación] No se pudo cargar @capacitor/app:', e);
+      });
+    }
+    
+    // Cleanup al salir del paso 3 o desmontar
+    return () => {
+      logger.dev('🧹 [Verificación] Limpiando listeners de verificación');
+      if (authSubscription) authSubscription.unsubscribe();
+      if (pollInterval) clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      if (capacitorAppListener) capacitorAppListener.remove();
+    };
+  }, [step]);
 
   // Títulos por paso
   const stepTitles = [
@@ -333,21 +436,29 @@ export default function RegisterPage() {
     }
     
     try {
-      // Registrar usuario nuevo
-      // 🔑 CRÍTICO: Usar URL de producción para emailRedirectTo
-      // En Electron, window.location.origin puede ser file:// o localhost
-      // El usuario verificará en el navegador y luego volverá a la app
+      // 🔑 CRÍTICO: Usar URL correcta según plataforma
+      // - En app nativa (iOS/Android): usar custom URL scheme para deep linking
+      // - En web: usar URL de producción
+      const isNativePlatform = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
       const isDev = import.meta.env.DEV;
-      const emailRedirectUrl = isDev 
-        ? 'http://localhost:5173/registro'
-        : 'https://main.dnpo8nagdov1i.amplifyapp.com/registro';
+      
+      let emailRedirectUrl;
+      if (isNativePlatform) {
+        // 📱 App nativa: usar custom scheme para abrir la app directamente
+        emailRedirectUrl = 'ondeon-smart://registro';
+        logger.dev('📱 [Registro] Usando deep link scheme para redirección:', emailRedirectUrl);
+      } else if (isDev) {
+        emailRedirectUrl = 'http://localhost:5173/registro';
+      } else {
+        emailRedirectUrl = 'https://main.dnpo8nagdov1i.amplifyapp.com/registro';
+      }
       
       const { data, error } = await supabase.auth.signUp({
         email: form.email,
         password: form.password,
         options: {
           data: {
-            rol: 'user', // v2: rol es texto
+            rol: 'user',
             nombre: form.email.split('@')[0]
           },
           emailRedirectTo: emailRedirectUrl
@@ -357,46 +468,89 @@ export default function RegisterPage() {
       if (error) throw error;
 
       if (data?.user) {
-        // 🔑 CRÍTICO: Verificar si el usuario ya existía
-        // Si identities está vacío, el usuario ya existía con otro método (OAuth)
-        const isExistingUser = !data.user.identities || data.user.identities.length === 0;
+        const user = data.user;
         
-        if (isExistingUser) {
-          logger.dev('⚠️ Usuario ya existe, verificando estado...');
+        // 🔑 CASO 1: Usuario ya existía (identities vacío = OAuth previo)
+        const isExistingOAuthUser = !user.identities || user.identities.length === 0;
+        
+        // 🔑 CASO 2: Usuario existe con email pero NO verificado
+        // Supabase devuelve el usuario existente cuando signUp con email ya registrado
+        const isUnverifiedEmailUser = user.identities?.length > 0 && !user.email_confirmed_at;
+        
+        logger.dev('📧 [Registro] Estado del usuario:', {
+          email: user.email,
+          identities: user.identities?.length,
+          email_confirmed_at: user.email_confirmed_at,
+          isExistingOAuthUser,
+          isUnverifiedEmailUser
+        });
+        
+        // 🔑 CASO 2: Usuario con email sin verificar - reenviar correo y ir a paso 3
+        if (isUnverifiedEmailUser) {
+          logger.dev('📧 [Registro] Usuario existe pero email NO verificado, reenviando correo...');
+          
+          // Reenviar correo de verificación
+          const { error: resendError } = await supabase.auth.resend({
+            type: 'signup',
+            email: form.email,
+            options: {
+              emailRedirectTo: emailRedirectUrl
+            }
+          });
+          
+          if (resendError) {
+            logger.warn('⚠️ Error reenviando correo:', resendError.message);
+            // Continuar de todos modos al paso 3
+          } else {
+            logger.dev('✅ Correo de verificación reenviado');
+          }
+          
+          setUserCreated(user);
+          setStep(3); // Ir a verificar email
+          return;
+        }
+        
+        // 🔑 CASO 1: Usuario OAuth existente
+        if (isExistingOAuthUser) {
+          logger.dev('⚠️ Usuario OAuth ya existe, verificando estado...');
           
           // Verificar si ya tiene registro completo
           const { data: userData, error: userError } = await supabase
             .from('usuarios')
             .select('id, registro_completo, rol')
-            .eq('auth_user_id', data.user.id)
+            .eq('auth_user_id', user.id)
             .maybeSingle();
           
           if (userData?.registro_completo) {
             logger.dev('✅ Usuario existente con registro completo, redirigiendo...');
-            // Usuario ya registrado completamente, redirigir al player o dashboard
             const targetRoute = userData.rol === 'admin' ? '/gestor' : '/';
             setError('');
             navigate(targetRoute, { replace: true });
             return;
           } else if (userData && !userData.registro_completo) {
-            // Usuario existe pero no completó registro, continuar desde donde quedó
             logger.dev('🔄 Usuario existente sin registro completo, continuando...');
-            setUserCreated(data.user);
-            setIsOAuthUser(true); // El email ya está verificado
-            setStep(4); // Ir directo a completar perfil
+            setUserCreated(user);
+            setIsOAuthUser(true);
+            setStep(4);
             return;
           } else {
-            // No hay registro en usuarios, pero el email ya existe en auth
-            // Esto pasa si se registró con OAuth
             setError('Este correo ya está registrado. Intenta iniciar sesión con Google o Apple.');
             return;
           }
         }
         
-        // Usuario nuevo, continuar con verificación de email
-        setUserCreated(data.user);
-        setStep(3); // Ir a verificar email
-        logger.dev('✅ Usuario gestor creado:', data.user.id);
+        // 🔑 CASO 3: Usuario nuevo con email verificado (raro pero posible)
+        if (user.email_confirmed_at) {
+          logger.dev('✅ Usuario nuevo con email ya verificado, saltando a paso 4');
+          setUserCreated(user);
+          setStep(4);
+          return;
+        }
+        
+        // 🔑 CASO 4: Usuario completamente nuevo - ir a verificar email
+        setUserCreated(user);
+        setStep(3);
+        logger.dev('✅ Usuario nuevo creado:', user.id);
       }
     } catch (err) {
       logger.error('Error en registro:', err);
@@ -419,16 +573,31 @@ export default function RegisterPage() {
     setResendSuccess(false);
     
     try {
-      // Recargar los datos del usuario de Supabase
-      const { data: { user } } = await supabase.auth.getUser();
+      // 🔑 CRÍTICO: Usar refreshSession() para obtener datos actualizados del servidor
+      // getUser() puede devolver datos cacheados del JWT que no reflejan la verificación
+      logger.dev('🔄 [Verificación] Refrescando sesión para verificar estado...');
+      
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      
+      let user = refreshData?.user;
+      
+      // Si refreshSession falla, intentar con getUser como fallback
+      if (refreshError) {
+        logger.warn('⚠️ [Verificación] refreshSession falló, usando getUser:', refreshError.message);
+        const { data: userData } = await supabase.auth.getUser();
+        user = userData?.user;
+      }
       
       if (user && user.email_confirmed_at) {
+        logger.dev('✅ [Verificación] Email confirmado en:', user.email_confirmed_at);
         setUserCreated(user);
         setStep(4); // Ir al paso de datos del perfil
       } else {
+        logger.dev('❌ [Verificación] Email aún no verificado. user:', user?.email);
         setError('El correo aún no ha sido verificado. Revisa tu bandeja de entrada.');
       }
     } catch (err) {
+      logger.error('❌ [Verificación] Error:', err);
       setError('Error al verificar el correo: ' + err.message);
     } finally {
       setCheckingVerification(false);
@@ -442,10 +611,18 @@ export default function RegisterPage() {
     setResendSuccess(false);
     
     try {
+      // 🔑 Usar URL correcta según plataforma
+      const isNativePlatform = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
       const isDev = import.meta.env.DEV;
-      const emailRedirectUrl = isDev 
-        ? 'http://localhost:5173/registro'
-        : 'https://main.dnpo8nagdov1i.amplifyapp.com/registro';
+      
+      let emailRedirectUrl;
+      if (isNativePlatform) {
+        emailRedirectUrl = 'ondeon-smart://registro';
+      } else if (isDev) {
+        emailRedirectUrl = 'http://localhost:5173/registro';
+      } else {
+        emailRedirectUrl = 'https://main.dnpo8nagdov1i.amplifyapp.com/registro';
+      }
       
       const { error } = await supabase.auth.resend({
         type: 'signup',

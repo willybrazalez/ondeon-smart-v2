@@ -572,11 +572,14 @@ export const authApi = {
   
   /**
    * Método interno para realizar OAuth con soporte in-app browser
+   * NOTA: En Capacitor nativo, el callback es manejado por AuthContext
+   * a través de su listener de deep links (appUrlOpen)
    */
   async _performOAuth(provider) {
     const redirectTo = this.getAuthRedirectUrl('/login');
     
     // En plataforma nativa, usar in-app browser
+    // AuthContext se encarga de capturar el callback via deep link
     if (this.isCapacitorNative() && CapacitorBrowser) {
       try {
         // Obtener la URL de OAuth sin redirigir automáticamente
@@ -592,8 +595,10 @@ export const authApi = {
         
         if (data?.url) {
           logger.dev(`🔐 Abriendo OAuth ${provider} en in-app browser`);
+          logger.dev(`🔗 Redirect URL configurada: ${redirectTo}`);
           
           // Abrir en in-app browser (SFSafariViewController en iOS)
+          // El callback será capturado por AuthContext via setupDeepLinkHandler
           await CapacitorBrowser.open({
             url: data.url,
             presentationStyle: 'popover', // iOS: presentación modal
@@ -601,7 +606,10 @@ export const authApi = {
             windowName: '_blank'
           });
           
-          return data;
+          // En nativo, no esperamos aquí - AuthContext manejará el callback
+          // y actualizará el estado de autenticación automáticamente
+          logger.dev(`✅ Browser abierto para OAuth ${provider} - AuthContext manejará el callback`);
+          return null;
         }
       } catch (e) {
         logger.error(`❌ Error en OAuth ${provider} nativo:`, e);
