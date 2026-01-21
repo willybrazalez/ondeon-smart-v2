@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.ondeon.smart",
+      "sha256_cert_fingerprints": [
+        "DF:F0:7B:4D:29:65:20:F9:8B:80:1D:2B:9B:42:3F:76:4D:49:BE:31:F3:08:01:FE:21:2C:19:8F:67:5B:54:A6"
+      ]
+    }
+  }
+]
