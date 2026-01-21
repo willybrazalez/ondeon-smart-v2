@@ -143,6 +143,7 @@ export const AuthProvider = ({ children }) => {
   const initLoadedRef = useRef(false)
   const lastAuthUserIdRef = useRef(null)
   const loadingUserDataRef = useRef(false) // Lock para evitar cargas concurrentes
+  const loadUserInitDataRef = useRef(null) // Ref para función de carga (evita problemas de orden)
 
   // ============================================================================
   // OAUTH CALLBACK HANDLER (para deep links en apps nativas)
@@ -205,8 +206,29 @@ export const AuthProvider = ({ children }) => {
           throw setSessionError;
         }
         
-        logger.dev('✅ Sesión OAuth establecida correctamente');
-        // El onAuthStateChange listener se encargará del resto
+        logger.dev('✅ [OAuth] Sesión establecida para:', data?.user?.email);
+        
+        // 🔑 CRÍTICO: Actualizar el estado inmediatamente para evitar race conditions
+        // En apps nativas, onAuthStateChange puede tardar o ser bloqueado
+        if (data?.session && data?.user) {
+          setSession(data.session);
+          setUser(data.user);
+          
+          // Liberar el lock si está activo para permitir la carga de datos
+          loadingUserDataRef.current = false;
+          lastAuthUserIdRef.current = null; // Forzar recarga
+          
+          // Esperar un momento para que los estados se actualicen
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Forzar carga de datos del usuario usando la ref
+          if (loadUserInitDataRef.current) {
+            logger.dev('🔄 [OAuth] Forzando carga de datos del usuario...');
+            await loadUserInitDataRef.current(data.user);
+          } else {
+            logger.warn('⚠️ [OAuth] loadUserInitData no disponible aún');
+          }
+        }
       } else {
         logger.warn('⚠️ OAuth callback sin tokens válidos');
       }
@@ -457,6 +479,9 @@ export const AuthProvider = ({ children }) => {
       loadingUserDataRef.current = false
     }
   }
+  
+  // 🔑 Guardar referencia a la función para uso en OAuth callback
+  loadUserInitDataRef.current = loadUserInitData;
 
   // ============================================================================
   // CANALES
