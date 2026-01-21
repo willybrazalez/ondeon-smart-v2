@@ -80,8 +80,11 @@ jspm_packages/
 
 # Electron specific (only for desktop builds)
 release/
-app/
+/app/
 packages/
+
+# Excepciones - Archivos Android necesarios para App Links
+!android/app/src/main/AndroidManifest.xml
 
 # Amplify
 amplify/\#current-cloud-backend
