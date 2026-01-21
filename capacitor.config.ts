@@ -10,7 +10,7 @@ const config: CapacitorConfig = {
     cleartext: true,
     androidScheme: 'https',
     // Hostname para asociar la app con el dominio (necesario para AutoFill de contraseñas)
-    hostname: 'ondeon.es'
+    hostname: 'app.ondeon.es'
   },
   plugins: {
     SplashScreen: {

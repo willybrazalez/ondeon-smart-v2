@@ -554,7 +554,7 @@ function AppContent() {
   }, [user]);
 
   // 📱 UNIVERSAL LINKS & DEEP LINKING: Capturar tokens de verificación de email
-  // Soporta tanto Universal Links (https://ondeon.es) como custom schemes (ondeon-smart://)
+  // Soporta tanto Universal Links (https://app.ondeon.es) como custom schemes (ondeon-smart://)
   useEffect(() => {
     const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
     if (!isNative) return;
@@ -609,12 +609,12 @@ function AppContent() {
               logger.error('❌ [Universal Link] Error parseando URL:', parseError);
             }
           } 
-          // Universal Links: https://ondeon.es/registro o https://www.ondeon.es/registro
-          else if (url.includes('ondeon.es/registro')) {
+          // Universal Links: https://app.ondeon.es/registro
+          else if (url.includes('app.ondeon.es/registro')) {
             logger.dev('📱 [Universal Link] Navegando a registro');
             navigate('/registro?continue=true');
           }
-          else if (url.includes('ondeon.es/login')) {
+          else if (url.includes('app.ondeon.es/login')) {
             logger.dev('📱 [Universal Link] Navegando a login');
             navigate('/login');
           }
@@ -636,7 +636,7 @@ function AppContent() {
         if (launchUrl?.url) {
           logger.dev('🚀 [Universal Link] App lanzada con URL:', launchUrl.url);
           // Disparar el evento manualmente para procesar la URL de lanzamiento
-          if (launchUrl.url.includes('ondeon.es') || launchUrl.url.includes('ondeon-smart://')) {
+          if (launchUrl.url.includes('app.ondeon.es') || launchUrl.url.includes('ondeon-smart://')) {
             // El callback de appUrlOpen se llamará automáticamente
           }
         }

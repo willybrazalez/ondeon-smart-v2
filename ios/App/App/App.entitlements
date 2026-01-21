@@ -4,10 +4,8 @@
 <dict>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:ondeon.es</string>
-		<string>applinks:www.ondeon.es</string>
-		<string>webcredentials:ondeon.es</string>
-		<string>webcredentials:www.ondeon.es</string>
+		<string>applinks:app.ondeon.es</string>
+		<string>webcredentials:app.ondeon.es</string>
 	</array>
 </dict>
 </plist>

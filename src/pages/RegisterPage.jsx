@@ -446,7 +446,7 @@ export default function RegisterPage() {
         emailRedirectUrl = 'http://localhost:5173/registro';
       } else {
         // 📱 Universal Link: funciona tanto en web como en app nativa
-        emailRedirectUrl = 'https://ondeon.es/registro';
+        emailRedirectUrl = 'https://app.ondeon.es/registro';
         logger.dev('🔗 [Registro] Usando Universal Link para redirección:', emailRedirectUrl);
       }
       
@@ -616,7 +616,7 @@ export default function RegisterPage() {
         emailRedirectUrl = 'http://localhost:5173/registro';
       } else {
         // 📱 Universal Link: funciona tanto en web como en app nativa
-        emailRedirectUrl = 'https://ondeon.es/registro';
+        emailRedirectUrl = 'https://app.ondeon.es/registro';
       }
       
       const { error } = await supabase.auth.resend({
