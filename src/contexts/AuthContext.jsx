@@ -142,6 +142,7 @@ export const AuthProvider = ({ children }) => {
   // Refs para evitar múltiples cargas
   const initLoadedRef = useRef(false)
   const lastAuthUserIdRef = useRef(null)
+  const loadingUserDataRef = useRef(false) // Lock para evitar cargas concurrentes
 
   // ============================================================================
   // OAUTH CALLBACK HANDLER (para deep links en apps nativas)
@@ -293,6 +294,15 @@ export const AuthProvider = ({ children }) => {
   // ============================================================================
   
   const loadUserInitData = async (providedUser = null) => {
+    // 🔒 Lock para evitar ejecuciones concurrentes
+    // Si ya hay una carga en progreso, no hacer nada
+    if (loadingUserDataRef.current) {
+      logger.dev('⏳ Carga de datos ya en progreso, ignorando llamada duplicada')
+      return
+    }
+    
+    loadingUserDataRef.current = true
+    
     // Flag para asegurar que siempre establecemos registroCompleto
     let registroCompletoSet = false
     
@@ -442,6 +452,9 @@ export const AuthProvider = ({ children }) => {
         logger.warn('⚠️ registroCompleto no fue establecido, forzando a false')
         setRegistroCompleto(false)
       }
+      
+      // 🔓 Liberar lock
+      loadingUserDataRef.current = false
     }
   }
 
@@ -586,6 +599,7 @@ export const AuthProvider = ({ children }) => {
     setEmailConfirmed(null)
     initLoadedRef.current = false
     lastAuthUserIdRef.current = null
+    loadingUserDataRef.current = false
   }
 
   const cleanupAllStorage = () => {
