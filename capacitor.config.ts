@@ -8,7 +8,9 @@ const config: CapacitorConfig = {
     // Para LIVE RELOAD: descomentar url y ejecutar npm run dev en otra terminal
     // url: 'http://localhost:5173',
     cleartext: true,
-    androidScheme: 'https'
+    androidScheme: 'https',
+    // Hostname para asociar la app con el dominio (necesario para AutoFill de contraseñas)
+    hostname: 'ondeon.es'
   },
   plugins: {
     SplashScreen: {

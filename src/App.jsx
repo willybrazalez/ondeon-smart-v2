@@ -553,7 +553,8 @@ function AppContent() {
     }
   }, [user]);
 
-  // 📱 DEEP LINKING: Capturar tokens de verificación de email cuando la app se abre via custom URL scheme
+  // 📱 UNIVERSAL LINKS & DEEP LINKING: Capturar tokens de verificación de email
+  // Soporta tanto Universal Links (https://ondeon.es) como custom schemes (ondeon-smart://)
   useEffect(() => {
     const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
     if (!isNative) return;
@@ -564,17 +565,16 @@ function AppContent() {
       try {
         const { App } = await import('@capacitor/app');
         
-        // Listener para cuando la app se abre via deep link
+        // Listener para cuando la app se abre via Universal Link o custom scheme
         appUrlOpenListener = await App.addListener('appUrlOpen', async ({ url }) => {
-          logger.dev('📱 [Deep Link] App abierta con URL:', url);
+          logger.dev('📱 [Universal Link] App abierta con URL:', url);
           
-          // Verificar si es un deep link de verificación de email
-          // Supabase envía los tokens en el hash fragment: ondeon-smart://registro#access_token=xxx&refresh_token=xxx
+          // Verificar si es un link de verificación de email con tokens
+          // Supabase envía los tokens en hash (#) o query (?)
           if (url.includes('access_token') || url.includes('type=signup') || url.includes('type=email')) {
-            logger.dev('🔐 [Deep Link] Detectados tokens de verificación');
+            logger.dev('🔐 [Universal Link] Detectados tokens de verificación');
             
             try {
-              // Extraer el hash/query de la URL
               const urlObj = new URL(url);
               let hashParams = null;
               
@@ -590,43 +590,58 @@ function AppContent() {
                 const refreshToken = hashParams.get('refresh_token');
                 
                 if (accessToken) {
-                  logger.dev('🔐 [Deep Link] Procesando tokens de sesión...');
+                  logger.dev('🔐 [Universal Link] Procesando tokens de sesión...');
                   
-                  // Establecer sesión con Supabase
                   const { data, error } = await supabase.auth.setSession({
                     access_token: accessToken,
                     refresh_token: refreshToken || ''
                   });
                   
                   if (error) {
-                    logger.error('❌ [Deep Link] Error estableciendo sesión:', error);
+                    logger.error('❌ [Universal Link] Error estableciendo sesión:', error);
                   } else {
-                    logger.dev('✅ [Deep Link] Sesión establecida:', data.user?.email);
-                    // Navegar a registro para continuar el flujo
+                    logger.dev('✅ [Universal Link] Sesión establecida:', data.user?.email);
                     navigate('/registro?continue=true&verified=true');
                   }
                 }
               }
             } catch (parseError) {
-              logger.error('❌ [Deep Link] Error parseando URL:', parseError);
+              logger.error('❌ [Universal Link] Error parseando URL:', parseError);
             }
-          } else if (url.includes('ondeon-smart://registro')) {
-            // Deep link simple sin tokens - navegar a registro
-            logger.dev('📱 [Deep Link] Navegando a registro');
+          } 
+          // Universal Links: https://ondeon.es/registro o https://www.ondeon.es/registro
+          else if (url.includes('ondeon.es/registro')) {
+            logger.dev('📱 [Universal Link] Navegando a registro');
             navigate('/registro?continue=true');
+          }
+          else if (url.includes('ondeon.es/login')) {
+            logger.dev('📱 [Universal Link] Navegando a login');
+            navigate('/login');
+          }
+          // Fallback: custom scheme ondeon-smart://
+          else if (url.includes('ondeon-smart://registro')) {
+            logger.dev('📱 [Deep Link] Navegando a registro (custom scheme)');
+            navigate('/registro?continue=true');
+          }
+          else if (url.includes('ondeon-smart://login')) {
+            logger.dev('📱 [Deep Link] Navegando a login (custom scheme)');
+            navigate('/login');
           }
         });
         
-        logger.dev('✅ [Deep Link] Listener de appUrlOpen configurado');
+        logger.dev('✅ [Universal Link] Listener de appUrlOpen configurado');
         
-        // También verificar si la app fue lanzada con un deep link
+        // Verificar si la app fue lanzada con un Universal Link
         const launchUrl = await App.getLaunchUrl();
         if (launchUrl?.url) {
-          logger.dev('🚀 [Deep Link] App lanzada con URL:', launchUrl.url);
-          // El listener manejará esto
+          logger.dev('🚀 [Universal Link] App lanzada con URL:', launchUrl.url);
+          // Disparar el evento manualmente para procesar la URL de lanzamiento
+          if (launchUrl.url.includes('ondeon.es') || launchUrl.url.includes('ondeon-smart://')) {
+            // El callback de appUrlOpen se llamará automáticamente
+          }
         }
       } catch (e) {
-        logger.warn('⚠️ [Deep Link] No se pudo configurar listener:', e);
+        logger.warn('⚠️ [Universal Link] No se pudo configurar listener:', e);
       }
     };
 

@@ -1,0 +1,31 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["K4TADJ2262.com.ondeon.smart"],
+        "components": [
+          {
+            "/": "/registro",
+            "comment": "Pagina de registro"
+          },
+          {
+            "/": "/registro*",
+            "comment": "Registro con parametros"
+          },
+          {
+            "/": "/login",
+            "comment": "Pagina de login"
+          },
+          {
+            "/": "/login*",
+            "comment": "Login con parametros"
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["K4TADJ2262.com.ondeon.smart"]
+  }
+}

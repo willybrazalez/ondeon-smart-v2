@@ -451,11 +451,12 @@ export default function LoginPage() {
               <Label>{t('auth.email')}</Label>
               <Input 
                 name="email" 
-                type="text" 
+                type="email" 
                 value={form.email} 
                 onChange={handleChange} 
                 required 
                 disabled={loading}
+                autoComplete="username"
               />
             </div>
             <div className="relative">
@@ -467,6 +468,7 @@ export default function LoginPage() {
                 onChange={handleChange}
                 required
                 disabled={loading}
+                autoComplete="current-password"
               />
               <button
                 type="button"

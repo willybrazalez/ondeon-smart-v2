@@ -436,21 +436,18 @@ export default function RegisterPage() {
     }
     
     try {
-      // 🔑 CRÍTICO: Usar URL correcta según plataforma
-      // - En app nativa (iOS/Android): usar custom URL scheme para deep linking
-      // - En web: usar URL de producción
-      const isNativePlatform = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
+      // 🔑 CRÍTICO: Usar Universal Links para redirección
+      // Universal Links (https://ondeon.es) funcionan mejor que custom schemes
+      // porque iOS abre la app directamente sin pasar por Safari
       const isDev = import.meta.env.DEV;
       
       let emailRedirectUrl;
-      if (isNativePlatform) {
-        // 📱 App nativa: usar custom scheme para abrir la app directamente
-        emailRedirectUrl = 'ondeon-smart://registro';
-        logger.dev('📱 [Registro] Usando deep link scheme para redirección:', emailRedirectUrl);
-      } else if (isDev) {
+      if (isDev) {
         emailRedirectUrl = 'http://localhost:5173/registro';
       } else {
-        emailRedirectUrl = 'https://main.dnpo8nagdov1i.amplifyapp.com/registro';
+        // 📱 Universal Link: funciona tanto en web como en app nativa
+        emailRedirectUrl = 'https://ondeon.es/registro';
+        logger.dev('🔗 [Registro] Usando Universal Link para redirección:', emailRedirectUrl);
       }
       
       const { data, error } = await supabase.auth.signUp({
@@ -611,17 +608,15 @@ export default function RegisterPage() {
     setResendSuccess(false);
     
     try {
-      // 🔑 Usar URL correcta según plataforma
-      const isNativePlatform = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
+      // 🔑 Usar Universal Links para redirección
       const isDev = import.meta.env.DEV;
       
       let emailRedirectUrl;
-      if (isNativePlatform) {
-        emailRedirectUrl = 'ondeon-smart://registro';
-      } else if (isDev) {
+      if (isDev) {
         emailRedirectUrl = 'http://localhost:5173/registro';
       } else {
-        emailRedirectUrl = 'https://main.dnpo8nagdov1i.amplifyapp.com/registro';
+        // 📱 Universal Link: funciona tanto en web como en app nativa
+        emailRedirectUrl = 'https://ondeon.es/registro';
       }
       
       const { error } = await supabase.auth.resend({
@@ -1031,6 +1026,7 @@ export default function RegisterPage() {
                   required 
                   disabled={loading}
                   placeholder="tu@email.com"
+                  autoComplete="username"
                   className="h-12 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500"
                 />
               </div>
@@ -1045,6 +1041,7 @@ export default function RegisterPage() {
                   disabled={loading}
                   placeholder="Mínimo 6 caracteres"
                   minLength={6}
+                  autoComplete="new-password"
                   className="h-12 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500"
                 />
                 <p className="text-xs text-gray-500">
@@ -1234,6 +1231,7 @@ export default function RegisterPage() {
                     onChange={handleChange}
                     required
                     placeholder="Tu nombre completo"
+                    autoComplete="name"
                     className="h-12 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500"
                   />
                 </div>
@@ -1298,6 +1296,7 @@ export default function RegisterPage() {
                   onChange={handleChange}
                   required
                   placeholder="600 000 000"
+                  autoComplete="tel"
                   className="h-12 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500"
                 />
               </div>

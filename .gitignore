@@ -150,3 +150,7 @@ ios/App/App.xcworkspace/xcuserdata/
 ios/App/App.xcodeproj/xcuserdata/
 ios/DerivedData/
 *.backup.*
+
+# Excepciones - Archivos iOS necesarios para Universal Links y entitlements
+!ios/App/App/App.entitlements
+!ios/App/App.xcodeproj/project.pbxproj
