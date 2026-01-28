@@ -472,27 +472,15 @@ export default function RegisterPage() {
     </div>
   );
 
-  // Autenticación con Google
+  // Autenticación con Google (usa InAppBrowser en iOS)
   const handleGoogleAuth = async () => {
     setError('');
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/registro`,
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
-          },
-          data: {
-            rol: 'user' // v2: rol es texto
-          }
-        }
-      });
-
-      if (error) throw error;
+      await signInWithGoogle();
+      // En nativo, el InAppBrowser manejará el callback
+      // En web, habrá redirección
     } catch (err) {
       logger.error('Error con Google:', err);
       setError('Error con Google: ' + err.message);
@@ -500,23 +488,15 @@ export default function RegisterPage() {
     }
   };
 
-  // Autenticación con Apple
+  // Autenticación con Apple (usa InAppBrowser en iOS)
   const handleAppleAuth = async () => {
     setError('');
     setLoading(true);
     
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'apple',
-        options: {
-          redirectTo: `${window.location.origin}/registro`,
-          data: {
-            rol: 'user' // v2: rol es texto
-          }
-        }
-      });
-      
-      if (error) throw error;
+      await signInWithApple();
+      // En nativo, el InAppBrowser manejará el callback
+      // En web, habrá redirección
     } catch (err) {
       logger.error('Error con Apple:', err);
       setError('Error con Apple: ' + err.message);
@@ -933,6 +913,9 @@ export default function RegisterPage() {
 
       logger.dev('✅ Registro completado - Trial de 7 días activado');
       logger.dev('➡️ Redirigiendo al reproductor...');
+      
+      // Guardar flag para mostrar modal de bienvenida
+      localStorage.setItem('ondeon_show_welcome_modal', 'true');
       
       // Redirigir al reproductor (home)
       navigate('/');

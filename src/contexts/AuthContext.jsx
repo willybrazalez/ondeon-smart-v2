@@ -22,9 +22,9 @@ const processOAuthUrl = async (url, handleOAuthCallback, closeBrowser = true) =>
     // Cerrar el browser in-app si está abierto
     if (closeBrowser) {
       try {
-        const { Browser } = await import('@capacitor/browser');
-        await Browser.close();
-        logger.dev('🔐 [OAuth] Browser cerrado');
+        const { InAppBrowser } = await import('@capacitor/inappbrowser');
+        await InAppBrowser.close();
+        logger.dev('🔐 [OAuth] InAppBrowser cerrado');
       } catch (e) {
         // Ignorar si no hay browser abierto
       }
@@ -112,51 +112,99 @@ const AuthContext = createContext({})
 const USER_CACHE_KEY = 'ondeon_user_cache_v1';
 const CACHE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 horas
 
+// Cache usando Capacitor Preferences (más confiable en iOS que localStorage)
+let CapacitorPreferences = null;
+
+// Cargar Preferences de forma síncrona si estamos en nativo
+const loadPreferences = async () => {
+  if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
+    try {
+      const { Preferences } = await import('@capacitor/preferences');
+      CapacitorPreferences = Preferences;
+      console.log('✅ [CACHE] Capacitor Preferences cargado');
+    } catch (e) {
+      console.log('⚠️ [CACHE] No se pudo cargar Capacitor Preferences, usando localStorage');
+    }
+  }
+};
+loadPreferences();
+
 const userCache = {
-  save(authUserId, data) {
+  async save(authUserId, data) {
     try {
       const cacheData = {
         authUserId,
         data,
         timestamp: Date.now()
       };
-      localStorage.setItem(USER_CACHE_KEY, JSON.stringify(cacheData));
-      logger.dev('💾 Datos de usuario guardados en caché');
+      const jsonData = JSON.stringify(cacheData);
+      
+      // Usar Capacitor Preferences en nativo, localStorage en web
+      if (CapacitorPreferences) {
+        await CapacitorPreferences.set({ key: USER_CACHE_KEY, value: jsonData });
+        console.log('💾 [CACHE_SAVE] Datos guardados en Preferences (nativo), userId:', authUserId);
+      } else {
+        localStorage.setItem(USER_CACHE_KEY, jsonData);
+        console.log('💾 [CACHE_SAVE] Datos guardados en localStorage, userId:', authUserId);
+      }
     } catch (e) {
-      logger.warn('⚠️ No se pudo guardar caché:', e);
+      console.log('❌ [CACHE_SAVE_ERROR] No se pudo guardar caché:', e.message);
     }
   },
   
-  get(authUserId) {
+  async get(authUserId) {
     try {
-      const cached = localStorage.getItem(USER_CACHE_KEY);
+      let cached;
+      
+      // Usar Capacitor Preferences en nativo, localStorage en web
+      if (CapacitorPreferences) {
+        const result = await CapacitorPreferences.get({ key: USER_CACHE_KEY });
+        cached = result?.value;
+        console.log('🔍 [CACHE_GET] Preferences (nativo) tiene datos:', !!cached);
+      } else {
+        cached = localStorage.getItem(USER_CACHE_KEY);
+        console.log('🔍 [CACHE_GET] localStorage tiene datos:', !!cached);
+      }
+      
       if (!cached) return null;
       
       const { authUserId: cachedUserId, data, timestamp } = JSON.parse(cached);
       
       // Verificar que es el mismo usuario y no ha expirado
       if (cachedUserId !== authUserId) {
-        logger.dev('ℹ️ Caché de usuario diferente, ignorando');
+        console.log('⚠️ [CACHE_GET] Usuario diferente. Caché:', cachedUserId, 'Actual:', authUserId);
         return null;
       }
       
-      if (Date.now() - timestamp > CACHE_MAX_AGE) {
-        logger.dev('ℹ️ Caché expirado, ignorando');
-        this.clear();
+      const age = Date.now() - timestamp;
+      console.log('🔍 [CACHE_GET] Edad del caché:', Math.round(age/1000), 'segundos, máximo:', Math.round(CACHE_MAX_AGE/1000), 's');
+      
+      if (age > CACHE_MAX_AGE) {
+        console.log('⚠️ [CACHE_GET] Caché expirado');
+        await this.clear();
         return null;
       }
       
-      logger.dev('⚡ Datos de usuario obtenidos desde caché');
+      console.log('✅ [CACHE_GET] Caché válido encontrado');
       return data;
     } catch (e) {
+      console.log('❌ [CACHE_GET_ERROR] Error leyendo caché:', e.message);
       return null;
     }
   },
   
-  clear() {
+  async clear() {
     try {
-      localStorage.removeItem(USER_CACHE_KEY);
-    } catch (e) {}
+      if (CapacitorPreferences) {
+        await CapacitorPreferences.remove({ key: USER_CACHE_KEY });
+        console.log('🗑️ [CACHE_CLEAR] Caché eliminado de Preferences (nativo)');
+      } else {
+        localStorage.removeItem(USER_CACHE_KEY);
+        console.log('🗑️ [CACHE_CLEAR] Caché eliminado de localStorage');
+      }
+    } catch (e) {
+      console.log('❌ [CACHE_CLEAR_ERROR]:', e.message);
+    }
   }
 };
 
@@ -193,6 +241,13 @@ export const AuthProvider = ({ children }) => {
   const [canAccessContents, setCanAccessContents] = useState(false)
   const [daysLeftInTrial, setDaysLeftInTrial] = useState(0)
   const [planTipo, setPlanTipo] = useState('trial') // 'trial' | 'free' | 'basico' | 'pro'
+  
+  // Acceso granular a funcionalidades
+  const [canSelectChannels, setCanSelectChannels] = useState(false)
+  const [canAccessChannelsPage, setCanAccessChannelsPage] = useState(false)
+  const [canCreateContent, setCanCreateContent] = useState(false)
+  const [canCreateAds, setCanCreateAds] = useState(false)
+  const [shouldShowTrialBanner, setShouldShowTrialBanner] = useState(false)
   
   // Reproducción manual (bloquea controles)
   const [isManualPlaybackActive, setIsManualPlaybackActive] = useState(false)
@@ -309,19 +364,16 @@ export const AuthProvider = ({ children }) => {
   
   useEffect(() => {
     const getInitialSession = async () => {
+      console.log('🚀 [INIT_START] getInitialSession iniciando, cacheAppliedRef:', cacheAppliedRef.current);
+      
       // 🔑 CRÍTICO: Si el caché ya fue aplicado (por onAuthStateChange),
       // no sobrescribir loading=true
       if (cacheAppliedRef.current) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:INIT_SKIP',message:'Skipping getInitialSession - cache already applied',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'INIT'})}).catch(()=>{});
-        // #endregion
-        logger.dev('⚡ Caché ya aplicado, saltando getInitialSession');
+        console.log('⚡ [INIT_SKIP] Caché ya aplicado, saltando getInitialSession');
         return;
       }
       
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:INIT_START',message:'getInitialSession starting, setLoading(true)',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'INIT'})}).catch(()=>{});
-      // #endregion
+      console.log('🔄 [INIT_LOADING] Llamando setLoading(true)');
       setLoading(true)
 
       // Verificar si estamos en proceso de logout
@@ -355,9 +407,7 @@ export const AuthProvider = ({ children }) => {
       // Cargar datos completos del usuario
       await loadUserInitData()
       
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:INIT_END',message:'getInitialSession ending, setLoading(false)',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'INIT'})}).catch(()=>{});
-      // #endregion
+      console.log('✅ [INIT_END] getInitialSession terminando, llamando setLoading(false)');
       setLoading(false)
     }
 
@@ -420,12 +470,11 @@ export const AuthProvider = ({ children }) => {
     // Flag para asegurar que siempre establecemos registroCompleto
     let registroCompletoSet = false
     
+    // 🔑 authUser definido fuera del try para estar disponible en catch
+    let authUser = providedUser
+    
     try {
       logger.dev('🔄 Cargando datos iniciales del usuario...')
-      
-      // Si se proporciona el usuario (desde onAuthStateChange), usarlo directamente
-      // Esto evita race conditions donde getUser() retorna null durante OAuth
-      let authUser = providedUser
       
       if (!authUser) {
         // Fallback: obtener usuario (para getInitialSession)
@@ -449,18 +498,14 @@ export const AuthProvider = ({ children }) => {
       logger.dev('📧 Email confirmado:', isEmailConfirmed)
       
       // ⚡ CACHÉ: Verificar si hay datos en caché para acceso instantáneo
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:CACHE_CHECK',message:'Checking cache',data:{authUserId:authUser.id,cacheKey:localStorage.getItem('ondeon_user_cache_v1')?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'CACHE'})}).catch(()=>{});
-      // #endregion
-      const cachedData = userCache.get(authUser.id);
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:CACHE_RESULT',message:'Cache result',data:{hasCachedData:!!cachedData,hasRegistroCompleto:cachedData?.usuario?.registro_completo},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'CACHE'})}).catch(()=>{});
-      // #endregion
-      if (cachedData && cachedData.usuario?.registro_completo) {
-        logger.dev('⚡ Usando datos de caché para acceso instantáneo');
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:CACHE_APPLYING',message:'Applying cached data',data:{userId:cachedData.usuario?.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'CACHE'})}).catch(()=>{});
-        // #endregion
+      console.log('🔍 [CACHE_CHECK] authUserId:', authUser.id);
+      const cachedData = await userCache.get(authUser.id);
+      console.log('🔍 [CACHE_RESULT] hasCachedData:', !!cachedData, 'registroCompleto:', cachedData?.usuario?.registro_completo);
+      // 🔑 Aplicar caché SIEMPRE que exista, incluso si registro está incompleto
+      // Esto evita el "Verificando cuenta..." prolongado
+      if (cachedData && cachedData.usuario) {
+        const isComplete = cachedData.usuario?.registro_completo === true;
+        console.log('✅ [CACHE_APPLYING] Aplicando caché, registroCompleto:', isComplete);
         
         // 🔑 Marcar que el caché fue aplicado ANTES de cualquier setState
         cacheAppliedRef.current = true;
@@ -468,16 +513,15 @@ export const AuthProvider = ({ children }) => {
         // Aplicar datos del caché inmediatamente
         setUserData(cachedData.usuario);
         setUserRole(cachedData.usuario?.rol || 'user');
-        setRegistroCompleto(true);
+        // Usar el valor real de registro_completo del caché
+        setRegistroCompleto(isComplete);
         registroCompletoSet = true;
         lastAuthUserIdRef.current = cachedData.usuario?.id;
         setRecommendedChannels(cachedData.canales_recomendados || []);
         setActiveProgramaciones(cachedData.programaciones_activas || []);
         
         // 🔑 CRÍTICO: Establecer loading=false para que la UI muestre el contenido
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:CACHE_SETLOADING_FALSE',message:'Setting loading=false from cache',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'CACHE'})}).catch(()=>{});
-        // #endregion
+        console.log('✅ [CACHE_SETLOADING_FALSE] Llamando setLoading(false)');
         setLoading(false);
         
         // Cargar canales e iniciar servicios inmediatamente
@@ -488,13 +532,19 @@ export const AuthProvider = ({ children }) => {
         );
         
         // Actualizar datos en background (sin bloquear)
-        initApi.getUserInit().then(freshData => {
+        initApi.getUserInit().then(async freshData => {
           if (freshData && !freshData.error) {
             logger.dev('🔄 Datos actualizados desde servidor');
             setUserData(freshData.usuario);
             setRecommendedChannels(freshData.canales_recomendados || []);
             setActiveProgramaciones(freshData.programaciones_activas || []);
-            userCache.save(authUser.id, freshData);
+            
+            // 🔑 CRÍTICO: Actualizar registroCompleto si cambió
+            const freshRegistroCompleto = freshData.usuario?.registro_completo === true;
+            console.log('🔄 [BACKGROUND_UPDATE] registroCompleto del servidor:', freshRegistroCompleto);
+            setRegistroCompleto(freshRegistroCompleto);
+            
+            await userCache.save(authUser.id, freshData);
           }
         }).catch(e => logger.warn('⚠️ Error actualizando datos en background:', e));
         
@@ -502,9 +552,12 @@ export const AuthProvider = ({ children }) => {
       }
       
       // Sin caché: cargar datos completos via RPC
-      // 🔑 Timeout de 90s para dar margen a cold starts de Supabase
+      console.log('🌐 [RPC_START] Iniciando getUserInit (sin caché)...');
+      const rpcStartTime = Date.now();
+      
+      // 🔑 Timeout de 30s - si tarda más, hay un problema de red/servidor
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout: getUserInit tardó demasiado')), 90000)
+        setTimeout(() => reject(new Error('Timeout: getUserInit tardó demasiado')), 30000)
       )
       
       const initData = await Promise.race([
@@ -512,14 +565,27 @@ export const AuthProvider = ({ children }) => {
         timeoutPromise
       ])
       
+      console.log('🌐 [RPC_END] getUserInit completado en', Date.now() - rpcStartTime, 'ms');
+      
       if (initData?.error) {
         // Usuario autenticado pero sin registro en tabla usuarios
-        logger.dev('ℹ️ Usuario sin registro completo en BD:', initData.error)
+        console.log('⚠️ [RPC_USER_NOT_FOUND] Usuario no existe en BD');
         setRegistroCompleto(false)
         registroCompletoSet = true
         setUserRole('user')
         setUserData(null)
-        userCache.clear(); // Limpiar caché inválido
+        
+        // 🔑 Guardar en caché que el usuario NO existe (registro_completo: false)
+        // Esto evita llamar al RPC lento en el próximo inicio
+        await userCache.save(authUser.id, { 
+          usuario: { 
+            id: authUser.id, 
+            email: authUser.email,
+            registro_completo: false 
+          },
+          canales_recomendados: [],
+          programaciones_activas: []
+        });
         return
       }
       
@@ -541,13 +607,9 @@ export const AuthProvider = ({ children }) => {
       // Guardar programaciones activas
       setActiveProgramaciones(initData.programaciones_activas || [])
       
-      // 💾 Guardar en caché para próximos accesos
-      if (isRegistroCompleto) {
-        userCache.save(authUser.id, initData);
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:CACHE_SAVED',message:'Cache saved',data:{authUserId:authUser.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'CACHE'})}).catch(()=>{});
-        // #endregion
-      }
+      // 💾 Guardar en caché para próximos accesos (siempre, incluso si registro incompleto)
+      console.log('💾 [CACHE_SAVE] Guardando caché, authUserId:', authUser.id, 'registroCompleto:', isRegistroCompleto);
+      await userCache.save(authUser.id, initData);
       
       logger.dev('✅ Datos iniciales cargados:', {
         usuario: initData.usuario?.email,
@@ -575,19 +637,34 @@ export const AuthProvider = ({ children }) => {
       // - TIMEOUT: El RPC está lento, NO significa que el usuario no tenga registro
       // - USER_NOT_FOUND: El usuario realmente no existe en la BD
       const isTimeoutError = error?.message?.includes('Timeout');
+      const isUserNotFound = error?.code === 'USER_NOT_FOUND' || error?.message?.includes('USER_NOT_FOUND');
+      
       if (isTimeoutError) {
         logger.warn('⚠️ Timeout cargando datos - el usuario puede tener registro, reintentando...')
         // NO establecer registroCompleto=false en timeout
         // Dejar en null para que la UI muestre "cargando" y no redirija
-        // El usuario puede reintentar o la siguiente llamada puede funcionar
-        registroCompletoSet = true // Marcar como "procesado" pero no cambiar el valor
+        registroCompletoSet = true
       } else {
         // Error real: usuario no encontrado, error de BD, etc.
+        console.log('⚠️ [CATCH_USER_NOT_FOUND] Guardando caché para usuario sin registro');
         setRegistroCompleto(false)
         registroCompletoSet = true
         setUserRole('user')
         setUserData(null)
-        logger.dev('ℹ️ Usuario sin datos en BD - requiere completar registro')
+        
+        // 🔑 Guardar en caché que el usuario NO tiene registro
+        // authUser está disponible del scope superior
+        if (authUser?.id) {
+          await userCache.save(authUser.id, { 
+            usuario: { 
+              id: authUser.id, 
+              email: authUser.email,
+              registro_completo: false 
+            },
+            canales_recomendados: [],
+            programaciones_activas: []
+          });
+        }
       }
     } finally {
       // 🔑 FALLBACK: Si por alguna razón registroCompleto no se estableció, hacerlo ahora
@@ -611,10 +688,12 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const checkTrialAndAccess = async () => {
       if (!userData) {
+        // 🔑 Sin userData, mantener valores por defecto (NO cambiar a 'free')
+        // Esto evita que se muestre el modal de trial expirado durante la carga
         setIsTrialActive(false)
         setCanAccessContents(false)
         setDaysLeftInTrial(0)
-        setPlanTipo('free')
+        // NO cambiar planTipo aquí - mantener el valor por defecto 'trial'
         return
       }
 
@@ -628,10 +707,12 @@ export const AuthProvider = ({ children }) => {
 
         if (userError || !userInfo) {
           logger.warn('⚠️ No se pudo obtener info de trial del usuario')
+          // 🔑 Error de red/servidor - NO asumir que el trial expiró
+          // Mantener valores actuales, no cambiar a 'free'
           setIsTrialActive(false)
           setCanAccessContents(false)
           setDaysLeftInTrial(0)
-          setPlanTipo('free')
+          // NO cambiar planTipo a 'free' en caso de error
           return
         }
 
@@ -658,17 +739,46 @@ export const AuthProvider = ({ children }) => {
         setIsTrialActive(trialActive)
         setDaysLeftInTrial(daysLeft)
 
-        // Verificar si tiene acceso a contenidos
-        // Trial activo O plan pro = acceso completo
-        // Plan básico o free = NO acceso a contenidos
-        const hasContentAccess = trialActive || currentPlanTipo === 'pro'
+        // Calcular accesos granulares según plan
+        const isPro = currentPlanTipo === 'pro'
+        const isBasico = currentPlanTipo === 'basico'
+        const isFree = currentPlanTipo === 'free'
+        const isTrial = currentPlanTipo === 'trial'
+
+        // Acceso a contenidos: Trial activo O plan pro
+        const hasContentAccess = trialActive || isPro
         setCanAccessContents(hasContentAccess)
+
+        // Seleccionar canales: Trial activo O plan básico/pro (NO free)
+        const canSelectCh = trialActive || isBasico || isPro
+        setCanSelectChannels(canSelectCh)
+
+        // Acceder a página de canales: Trial activo O plan básico/pro (NO free)
+        const canAccessCh = trialActive || isBasico || isPro
+        setCanAccessChannelsPage(canAccessCh)
+
+        // Crear contenidos: Solo plan pro
+        const canCreateCont = isPro
+        setCanCreateContent(canCreateCont)
+
+        // Crear anuncios: Plan básico o pro (NO trial ni free)
+        const canCreateAd = isBasico || isPro
+        setCanCreateAds(canCreateAd)
+
+        // Mostrar banner de trial: Si está en trial O es free
+        const showBanner = trialActive || isFree
+        setShouldShowTrialBanner(showBanner)
 
         logger.dev('✅ Estado de acceso calculado:', {
           trialActive,
           daysLeft,
           planTipo: currentPlanTipo,
-          canAccessContents: hasContentAccess
+          canAccessContents: hasContentAccess,
+          canSelectChannels: canSelectCh,
+          canAccessChannelsPage: canAccessCh,
+          canCreateContent: canCreateCont,
+          canCreateAds: canCreateAd,
+          shouldShowTrialBanner: showBanner
         })
 
       } catch (error) {
@@ -765,7 +875,7 @@ export const AuthProvider = ({ children }) => {
     resetAuthState()
     
     // Limpiar storage
-    cleanupAllStorage()
+    await cleanupAllStorage()
     
     // Logout de Supabase
     try {
@@ -810,9 +920,9 @@ export const AuthProvider = ({ children }) => {
   }
 
   // Limpiar todo el storage (para logout explícito)
-  const cleanupAllStorage = () => {
+  const cleanupAllStorage = async () => {
     // Limpiar caché de usuario
-    userCache.clear();
+    await userCache.clear();
     // Limpiar claves de Supabase
     cleanupSupabaseStorage();
   }
@@ -1018,10 +1128,17 @@ export const AuthProvider = ({ children }) => {
     emailConfirmed,     // true si email_confirmed_at no es null
     
     // Trial y acceso
-    isTrialActive,      // true si el trial de 7 días está activo
-    canAccessContents,  // true si puede acceder a contenidos (trial activo o plan pro)
-    daysLeftInTrial,    // días restantes del trial
-    planTipo,           // 'trial' | 'free' | 'basico' | 'pro'
+    isTrialActive,         // true si el trial de 7 días está activo
+    canAccessContents,     // true si puede acceder a contenidos (trial activo o plan pro)
+    daysLeftInTrial,       // días restantes del trial
+    planTipo,              // 'trial' | 'free' | 'basico' | 'pro'
+    
+    // Acceso granular a funcionalidades
+    canSelectChannels,     // true si puede cambiar de canal (trial, basico, pro)
+    canAccessChannelsPage, // true si puede ver página de canales (trial, basico, pro)
+    canCreateContent,      // true si puede crear contenidos (solo pro)
+    canCreateAds,          // true si puede crear anuncios (basico, pro)
+    shouldShowTrialBanner, // true si debe mostrar el banner de trial (trial o free)
     
     // Auth methods
     signUp,

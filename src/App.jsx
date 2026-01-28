@@ -20,7 +20,9 @@ import {
   Lock,
   CreditCard,
   ExternalLink,
-  User
+  User,
+  Clock,
+  Crown
 } from 'lucide-react';
 import { Toaster } from './components/ui/toaster';
 import PlayerPage from '@/pages/PlayerPage';
@@ -57,6 +59,8 @@ import { PlayerProvider } from '@/contexts/PlayerContext';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import MobileLayout from '@/layouts/MobileLayout';
 import BottomNavigation from '@/components/mobile/BottomNavigation';
+import TrialBanner from '@/components/trial/TrialBanner';
+import UpgradePromptMobile from '@/components/mobile/UpgradePromptMobile';
 
 // Detectar si estamos en web o en Capacitor nativo
 export const getIsWebPlatform = () => {
@@ -85,14 +89,19 @@ const PlayerControls = ({
   djStats,
   channelName,
   channelImage,
-  isPlayingScheduledContent = false
+  isPlayingScheduledContent = false,
+  canSelectChannels = true
 }) => {
   const { t } = useTranslation();
   const { isManualPlaybackActive, manualPlaybackInfo } = useAuth();
-  const isBlocked = isPlayingScheduledContent || isManualPlaybackActive;
+  const isBlocked = isPlayingScheduledContent || isManualPlaybackActive || !canSelectChannels;
   const blockMessage = isManualPlaybackActive 
     ? `${t('player.manualPlayback')}: ${manualPlaybackInfo?.contentName || t('player.content')}`
-    : isPlayingScheduledContent ? t('player.scheduledContentPlaying') : undefined;
+    : isPlayingScheduledContent 
+      ? t('player.scheduledContentPlaying')
+      : !canSelectChannels 
+        ? 'Suscríbete para cambiar de canal'
+        : undefined;
   
   const displayTitle = (isPlayingScheduledContent || isManualPlaybackActive) ? t('player.content') : currentTrackInfo.title;
   const displayArtist = (isPlayingScheduledContent || isManualPlaybackActive) ? t('player.content') : currentTrackInfo.artist;
@@ -156,9 +165,10 @@ const PlayerControls = ({
               disabled={isBlocked}
               title={blockMessage || t('player.previousChannel')}
               className={`w-12 h-12 rounded-2xl flex items-center justify-center 
-                        bg-white/[0.06] border border-white/[0.08] backdrop-blur-xl
-                        active:bg-white/[0.12] transition-all duration-200
+                        bg-white/[0.06] border border-white/[0.08]
+                        active:bg-white/[0.12] transition-colors duration-200
                         ${isBlocked ? 'opacity-30 cursor-not-allowed' : ''}`}
+              style={{ transform: 'translateZ(0)' }}
             >
               <ChevronLeft className="w-6 h-6 text-white/70" />
             </motion.button>
@@ -166,10 +176,11 @@ const PlayerControls = ({
             {/* Card del canal */}
             <motion.div 
               className="flex-1 max-w-[200px] flex items-center gap-3 px-4 py-3 rounded-2xl 
-                        bg-white/[0.06] border border-white/[0.08] backdrop-blur-xl"
+                        bg-white/[0.06] border border-white/[0.08]"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.3, delay: 0.1 }}
+              style={{ transform: 'translateZ(0)' }}
             >
               {/* Avatar del canal */}
               <div className="relative flex-shrink-0">
@@ -205,9 +216,10 @@ const PlayerControls = ({
               disabled={isBlocked}
               title={blockMessage || t('player.nextChannel')}
               className={`w-12 h-12 rounded-2xl flex items-center justify-center 
-                        bg-white/[0.06] border border-white/[0.08] backdrop-blur-xl
-                        active:bg-white/[0.12] transition-all duration-200
+                        bg-white/[0.06] border border-white/[0.08]
+                        active:bg-white/[0.12] transition-colors duration-200
                         ${isBlocked ? 'opacity-30 cursor-not-allowed' : ''}`}
+              style={{ transform: 'translateZ(0)' }}
             >
               <ChevronRight className="w-6 h-6 text-white/70" />
             </motion.button>
@@ -319,7 +331,7 @@ const VolumeControl = ({ side, icon: Icon, value, onChange, disabled = false }) 
       {/* Escritorio: sliders verticales con burbuja y mute - Oculto en móvil */}
       <div className={`hidden md:flex fixed top-1/2 -translate-y-1/2 flex-col items-center gap-2 p-4 z-30 ${side === 'left' ? 'volume-left' : 'volume-right'}`}>
         <div className="relative h-40 flex flex-col items-center">
-          <div className="absolute -top-6 text-xs px-2 py-0.5 rounded-full bg-black/10 dark:bg-white/10 backdrop-blur-md">
+          <div className="absolute -top-6 text-xs px-2 py-0.5 rounded-full bg-black/20 dark:bg-white/20">
             {value}%
           </div>
           <input
@@ -342,7 +354,7 @@ const VolumeControl = ({ side, icon: Icon, value, onChange, disabled = false }) 
             onClick={toggleMute}
             disabled={disabled}
             title={disabled ? t('player.lockedDuringManual') : (value > 0 ? t('player.mute') : t('player.unmute'))}
-            className={`mt-3 rounded-full p-2 bg-black/5 dark:bg-white/5 backdrop-blur-lg transition-all duration-300 shadow-[0_0_15px_rgba(128,128,128,0.15)] dark:shadow-[0_0_15px_rgba(128,128,128,0.1)] ${disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-black/10 dark:hover:bg-white/10'}`}
+            className={`mt-3 rounded-full p-2 bg-black/10 dark:bg-white/10 transition-colors duration-300 ${disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-black/20 dark:hover:bg-white/20'}`}
           >
             <Icon className={`w-5 h-5 ${value === 0 ? 'text-[#A2D9F7]' : 'text-gray-500 dark:text-gray-400'}`} />
           </button>
@@ -365,6 +377,9 @@ function AppContent() {
   
   // 🎬 Estado del splash screen
   const [showSplash, setShowSplash] = useState(true);
+  
+  // 💳 Estado para modal de upgrade (iOS)
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
   
   // 📜 Ref para el contenedor principal de scroll
   const scrollContainerRef = useRef(null);
@@ -413,7 +428,7 @@ function AppContent() {
   const { t } = useTranslation();
   
   const theme = 'dark'; // Tema oscuro único
-  const { user, loading: authLoading, userChannels, channelsLoading, signOut, ensureChannelsLoaded, loadUserActiveChannels, isManualPlaybackActive, manualPlaybackInfo, registroCompleto } = useAuth();
+  const { user, loading: authLoading, userChannels, channelsLoading, signOut, ensureChannelsLoaded, loadUserActiveChannels, isManualPlaybackActive, manualPlaybackInfo, registroCompleto, canSelectChannels, shouldShowTrialBanner, isTrialActive, daysLeftInTrial, planTipo } = useAuth();
   const { roleName, hasPermission, uiConfig, userRole } = useRole();
   const navigate = useNavigate();
   
@@ -1251,31 +1266,26 @@ function AppContent() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0a0e14]">
         <div className="text-center space-y-6">
-          {/* Logo */}
+          {/* Logo optimizado para iOS */}
           <div className="relative mb-8">
-            <div className="absolute inset-0 blur-2xl bg-[#A2D9F7]/20 rounded-full scale-150 animate-pulse" />
             <img
               src="/assets/icono-ondeon.png"
               alt="Ondeon"
-              className="relative w-20 h-20 mx-auto drop-shadow-2xl animate-[float_3s_ease-in-out_infinite]"
+              className="w-20 h-20 mx-auto"
+              style={{ transform: 'translateZ(0)' }}
             />
           </div>
           
-          {/* Spinner moderno */}
+          {/* Spinner simple */}
           <div className="relative w-16 h-16 mx-auto">
             <div className="absolute inset-0 border-4 border-[#A2D9F7]/20 rounded-full"></div>
             <div className="absolute inset-0 border-4 border-transparent border-t-[#A2D9F7] rounded-full animate-spin"></div>
           </div>
           
-          {/* Texto con animación */}
+          {/* Texto */}
           <div className="space-y-2">
             <p className="text-white text-base font-medium">Verificando cuenta</p>
-            <p className="text-white/40 text-sm animate-pulse">Esto solo tomará unos segundos...</p>
-          </div>
-          
-          {/* Barra de progreso animada */}
-          <div className="w-64 h-1 bg-white/10 rounded-full mx-auto overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-[#A2D9F7] to-[#7AB8E0] rounded-full animate-[progress_2s_ease-in-out_infinite]"></div>
+            <p className="text-white/40 text-sm">Esto solo tomará unos segundos...</p>
           </div>
         </div>
       </div>
@@ -1306,38 +1316,60 @@ function AppContent() {
         />
       )}
       <div className="relative z-10 flex flex-col flex-1">
-        {/* 📱 Header - Versión móvil moderna */}
+        {/* 📱 Header - Versión móvil moderna optimizada para iOS */}
         {showHeader && showMobileUI && (
-          <header className="fixed top-0 left-0 right-0 z-[60] safe-area-top">
-            {/* Fondo transparente con blur sutil */}
-            <div className="absolute inset-0 bg-transparent backdrop-blur-md" />
-            
-            <div className="relative flex items-center justify-between h-16 px-4">
-              {/* Logo grande + Smart */}
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <div className="absolute inset-0 bg-[#A2D9F7]/25 rounded-full blur-2xl scale-150" />
+          <header className="fixed top-0 left-0 right-0 z-[60] safe-area-top bg-[#0a0e14]/95" style={{ transform: 'translateZ(0)' }}>
+            <div className="px-4 py-3 space-y-2">
+              {/* Fila superior: Logo + SMART | Nombre establecimiento */}
+              <div className="flex items-center justify-between">
+                {/* Logo grande + Smart */}
+                <div className="flex items-center gap-2">
                   <img
                     src="/assets/icono-ondeon.png"
                     alt="Ondeón Smart"
-                    className="relative h-14 w-14 drop-shadow-[0_0_15px_rgba(162,217,247,0.4)]"
+                    className="h-10 w-10"
                     onError={(e) => { e.target.style.display = 'none'; }}
                   />
+                  <span className="text-sm tracking-[0.2em] font-light text-[#A2D9F7]">SMART</span>
                 </div>
-                <span className="text-lg tracking-[0.2em] font-light text-[#A2D9F7]">SMART</span>
+                
+                {/* Nombre establecimiento con acceso a cuenta */}
+                <Link 
+                  to="/cuenta"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] max-w-[200px]"
+                >
+                  <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+                  <span className="text-xs text-white/90 font-medium truncate">
+                    {user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email?.split('@')[0] || t('common.user')}
+                  </span>
+                  <ChevronRight size={14} className="text-white/40 flex-shrink-0" />
+                </Link>
               </div>
               
-              {/* Nombre establecimiento con acceso a cuenta */}
-              <Link 
-                to="/cuenta"
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.06] border border-white/[0.08] hover:bg-white/[0.1] hover:border-white/[0.12] transition-all duration-200 active:scale-95"
-              >
-                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
-                <span className="text-sm text-white/90 font-medium">
-                  {user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email?.split('@')[0] || t('common.user')}
-                </span>
-                <ChevronRight size={16} className="text-white/40" />
-              </Link>
+              {/* Fila inferior: Indicadores de trial */}
+              {shouldShowTrialBanner && (
+                <div className="flex items-center justify-end gap-2">
+                  {/* Indicador de días de trial */}
+                  {isTrialActive && (
+                    <button 
+                      onClick={() => setShowUpgradePrompt(true)}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/10 border border-white/10"
+                    >
+                      <Clock className="w-3.5 h-3.5 text-[#A2D9F7]" />
+                      <span className="text-xs font-semibold text-white">{daysLeftInTrial}d</span>
+                    </button>
+                  )}
+                  
+                  {/* Botón Ver planes */}
+                  <button
+                    onClick={() => setShowUpgradePrompt(true)}
+                    className="px-3 py-1.5 text-xs font-semibold bg-[#A2D9F7] text-[#0a0e14] rounded-lg"
+                  >
+                    <Crown className="w-3.5 h-3.5 inline mr-1" />
+                    Ver planes
+                  </button>
+                </div>
+              )}
             </div>
           </header>
         )}
@@ -1346,8 +1378,8 @@ function AppContent() {
         {showHeader && !showMobileUI && (
           <header className={`fixed top-0 left-0 right-0 w-full px-8 py-6 z-[60] transition-all duration-300
             ${currentPath !== '/' 
-              ? 'backdrop-blur-lg bg-background/80' 
-              : 'backdrop-blur-lg bg-background/70 sm:bg-transparent sm:backdrop-blur-0'}`}>
+              ? 'bg-background/90' 
+              : 'bg-background/80 sm:bg-transparent'}`}>
             <div className="flex items-center justify-between max-w-7xl mx-auto">
               <div className="flex items-center gap-3">
                 <img
@@ -1362,7 +1394,7 @@ function AppContent() {
                 />
                 <span className="text-2xl tracking-[0.2em] font-light text-[#A2D9F7] font-sans">SMART</span>
               </div>
-              <div className="flex items-center gap-2 sm:gap-4 px-2 py-1 rounded-2xl bg-black/5 dark:bg-white/5 backdrop-blur-md border border-white/10 dark:border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.15)] ml-auto">
+              <div className="flex items-center gap-2 sm:gap-4 px-2 py-1 rounded-2xl bg-black/10 dark:bg-white/10 border border-white/10 dark:border-white/10 ml-auto">
                 <span className="text-sm text-[#A2D9F7] flex items-center gap-2 px-2">
                   {user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email || t('common.user')}
                   <Circle size={8} className="fill-green-500 text-green-500" />
@@ -1395,10 +1427,17 @@ function AppContent() {
           </header>
         )}
 
+        {/* ⏰ Banner de Trial - Solo para web desktop, NO para móvil iOS */}
+        {shouldShowTrialBanner && showHeader && !showMobileUI && (
+          <div className="pt-28">
+            <TrialBanner />
+          </div>
+        )}
+
         <div 
           ref={scrollContainerRef}
           data-scroll-container
-          className={`flex-1 relative overflow-y-auto overflow-x-hidden ${(isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? '' : showMobileUI ? '' : 'pt-28'} ${showMobileUI && showNavigation ? 'pb-28' : ''}`} 
+          className={`flex-1 relative overflow-y-auto overflow-x-hidden ${(isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? '' : showMobileUI ? '' : (shouldShowTrialBanner ? 'pt-16' : 'pt-28')} ${showMobileUI && showNavigation ? 'pb-28' : ''}`} 
           style={{ 
             overscrollBehavior: 'none',
             paddingTop: (isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? 0 : showMobileUI ? 'calc(env(safe-area-inset-top, 0px) + 56px)' : undefined
@@ -1466,6 +1505,7 @@ function AppContent() {
                 channelName={currentChannel?.name}
                 channelImage={currentChannel?.imagen_url || currentChannel?.imageUrl}
                 isPlayingScheduledContent={isPlayingScheduledContent}
+                canSelectChannels={canSelectChannels}
               />
 
               <VolumeControl
@@ -1531,9 +1571,9 @@ function AppContent() {
         </div>
 
         {/* Footer translúcido para evitar superposición (solo con usuario COMPLETAMENTE autenticado, fuera de admin y fuera de dashboards web) */}
-        {isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && (
+        {isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && !showMobileUI && (
           <footer className="fixed bottom-0 left-0 right-0 w-full h-32 z-40 pointer-events-none
-            bg-gradient-to-t from-background/80 via-background/40 to-transparent backdrop-blur-sm">
+            bg-gradient-to-t from-background/80 via-background/40 to-transparent">
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-auto">
               <p className="text-xs text-muted-foreground/70 text-center">
                 {t('footer.version')} {appVersion ? `v${appVersion}` : 'Web'}
@@ -1566,9 +1606,9 @@ function AppContent() {
                 >
                   <Link
                     to={item.path}
-                    className={`flex flex-col items-center justify-center rounded-2xl transition-all duration-300 backdrop-blur-lg overflow-hidden p-3
+                    className={`flex flex-col items-center justify-center rounded-2xl transition-all duration-300 overflow-hidden p-3
                       ${currentPath === item.path 
-                        ? 'bg-black/5 dark:bg-white/5 text-black dark:text-white shadow-[0_0_35px_rgba(162,217,247,0.5)] dark:shadow-[0_0_20px_rgba(255,255,255,0.2)] scale-110' 
+                        ? 'bg-white/10 text-white scale-105' 
                         : 'bg-black/3 dark:bg-white/3 text-black/90 dark:text-white/90 hover:bg-black/5 dark:hover:bg-white/5 hover:scale-105'}`}
                     style={{
                       minHeight: '64px',
@@ -1592,6 +1632,12 @@ function AppContent() {
           </div>
         )}
       </div>
+      
+      {/* 💳 Modal de upgrade para iOS */}
+      <UpgradePromptMobile 
+        isOpen={showUpgradePrompt}
+        onClose={() => setShowUpgradePrompt(false)}
+      />
     </div>
   );
 }

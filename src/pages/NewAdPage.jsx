@@ -8,6 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { ChevronRight, ChevronLeft, Wand2, Volume2 as VoiceIcon, Check, Loader2, UploadCloud, Lightbulb, Mic, Eye } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import SubscriptionGate from '@/components/SubscriptionGate';
 
 const STEPS_CONFIG = [
   { id: 1, name: 'Texto del Anuncio', icon: Wand2, cleanName: 'Concepto Creativo' },
@@ -148,6 +150,7 @@ const StepperIndicator = ({ steps, currentStep }) => (
 
 
 const NewAdPage = () => {
+  const { canCreateAds } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [adText, setAdText] = useState('');
   const [selectedVoice, setSelectedVoice] = useState(AI_VOICES[0].id);
@@ -158,6 +161,11 @@ const NewAdPage = () => {
   const [isListening, setIsListening] = useState(false);
   const { toast } = useToast();
   const adTextRef = useRef(null);
+
+  // Guard: Crear anuncios solo para planes básico y pro
+  if (!canCreateAds) {
+    return <SubscriptionGate />;
+  }
 
   const nextStep = useCallback(() => setCurrentStep(prev => Math.min(prev + 1, STEPS_CONFIG.length)), []);
   const prevStep = useCallback(() => setCurrentStep(prev => Math.max(prev - 1, 1)), []);

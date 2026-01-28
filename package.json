@@ -23,9 +23,10 @@
   "dependencies": {
     "@capacitor/android": "^8.0.1",
     "@capacitor/app": "8.0.1-nightly-20260116T150806.0",
-    "@capacitor/browser": "8.0.0",
     "@capacitor/core": "^8.0.1",
+    "@capacitor/inappbrowser": "^3.0.1",
     "@capacitor/ios": "^8.0.1",
+    "@capacitor/preferences": "^8.0.0",
     "@emotion/is-prop-valid": "^1.2.1",
     "@radix-ui/react-alert-dialog": "^1.0.5",
     "@radix-ui/react-avatar": "^1.0.3",

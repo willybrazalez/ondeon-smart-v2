@@ -4,6 +4,7 @@ import { Radio, Music, Loader2, Play, Volume2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import logger from '@/lib/logger';
+import SubscriptionGate from '@/components/SubscriptionGate';
 
 // ============================================================================
 // ONDEON SMART v2 - CHANNELS PAGE
@@ -332,8 +333,15 @@ const ChannelsPage = ({ setCurrentChannel, currentChannel, isPlaying, togglePlay
     user,
     userData,
     isManualPlaybackActive, 
-    manualPlaybackInfo 
+    manualPlaybackInfo,
+    canAccessChannelsPage
   } = useAuth();
+
+  // Guard: Verificar acceso a canales (solo trial, basico, pro)
+  if (!canAccessChannelsPage) {
+    logger.dev('🔒 Usuario FREE sin acceso a página de canales');
+    return <SubscriptionGate />;
+  }
 
   // =========================================================================
   // MODO PRUEBA: Usar datos mock en lugar de datos reales

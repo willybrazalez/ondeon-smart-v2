@@ -1,21 +1,31 @@
-import React from 'react';
-import { Lock, ExternalLink, Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import { Lock, ExternalLink, Clock, Globe } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import UpgradePromptMobile from '@/components/mobile/UpgradePromptMobile';
 
 /**
  * SubscriptionGate - Componente de bloqueo para contenido premium
  * 
  * Muestra un mensaje cuando el usuario no tiene acceso a contenidos.
- * Indica que debe gestionar su suscripción desde ondeon.es
+ * Detecta la plataforma (web vs iOS/Android) y muestra el CTA apropiado.
  */
 export default function SubscriptionGate() {
   const { isTrialActive, daysLeftInTrial, planTipo } = useAuth();
+  const [showMobilePrompt, setShowMobilePrompt] = useState(false);
+  
+  // Detectar si estamos en plataforma nativa
+  const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
 
-  const handleGoToWeb = () => {
-    // Abrir ondeon.es en nueva pestaña
-    window.open('https://ondeon.es', '_blank');
+  const handleUpgrade = () => {
+    if (isNative) {
+      // En iOS/Android: mostrar mensaje educativo
+      setShowMobilePrompt(true);
+    } else {
+      // En web: abrir ondeon.es en nueva pestaña
+      window.open('https://ondeon.es', '_blank');
+    }
   };
 
   return (
@@ -65,11 +75,20 @@ export default function SubscriptionGate() {
 
         {/* Botón */}
         <Button
-          onClick={handleGoToWeb}
+          onClick={handleUpgrade}
           className="w-full bg-[#A2D9F7] hover:bg-[#A2D9F7]/90 text-black font-medium"
         >
-          <ExternalLink className="w-4 h-4 mr-2" />
-          Ir a ondeon.es
+          {isNative ? (
+            <>
+              <Globe className="w-4 h-4 mr-2" />
+              Ver cómo suscribirme
+            </>
+          ) : (
+            <>
+              <ExternalLink className="w-4 h-4 mr-2" />
+              Ir a ondeon.es
+            </>
+          )}
         </Button>
 
         {/* Info adicional */}
@@ -81,6 +100,12 @@ export default function SubscriptionGate() {
           </p>
         </div>
       </Card>
+
+      {/* Prompt para móvil */}
+      <UpgradePromptMobile 
+        isOpen={showMobilePrompt}
+        onClose={() => setShowMobilePrompt(false)}
+      />
     </div>
   );
 }

@@ -2,23 +2,21 @@ import { supabase } from './supabase'
 import logger from './logger.js'
 
 // ============================================================================
-// CAPACITOR BROWSER - Para OAuth in-app
+// CAPACITOR IN-APP BROWSER - Para OAuth in-app (SFSafariViewController)
 // ============================================================================
-let CapacitorBrowser = null;
-let CapacitorApp = null;
+let CapacitorInAppBrowser = null;
+let DefaultSystemBrowserOptions = null;
 
-// Cargar dinámicamente el plugin de Browser cuando esté en entorno nativo
+// Cargar dinámicamente el plugin de InAppBrowser cuando esté en entorno nativo
 const loadCapacitorPlugins = async () => {
   if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
     try {
-      const browserModule = await import('@capacitor/browser');
-      CapacitorBrowser = browserModule.Browser;
-      
-      const appModule = await import('@capacitor/core');
-      // App listener para deep links ya está manejado por Capacitor
-      logger.dev('✅ Capacitor Browser plugin cargado');
+      const inAppBrowserModule = await import('@capacitor/inappbrowser');
+      CapacitorInAppBrowser = inAppBrowserModule.InAppBrowser;
+      DefaultSystemBrowserOptions = inAppBrowserModule.DefaultSystemBrowserOptions;
+      logger.dev('✅ Capacitor InAppBrowser plugin cargado');
     } catch (e) {
-      logger.warn('⚠️ No se pudo cargar Capacitor Browser:', e);
+      logger.warn('⚠️ No se pudo cargar Capacitor InAppBrowser:', e);
     }
   }
 };
@@ -83,24 +81,35 @@ export const initApi = {
    * Incluye: usuario, sector, canales_recomendados, programaciones_activas
    */
   async getUserInit() {
-    const { data, error } = await measureQuery('rpc_get_user_init', () =>
-      supabase.rpc('rpc_get_user_init')
-    );
+    console.log('🌐 [API] getUserInit() llamado, iniciando RPC...');
+    const startTime = Date.now();
     
-    if (error) {
-      logger.error('❌ Error en rpc_get_user_init:', error);
-      throw error;
+    try {
+      const { data, error } = await measureQuery('rpc_get_user_init', () =>
+        supabase.rpc('rpc_get_user_init')
+      );
+      
+      console.log('🌐 [API] RPC completado en', Date.now() - startTime, 'ms');
+      
+      if (error) {
+        console.log('❌ [API] Error en RPC:', error);
+        throw error;
+      }
+      
+      // El RPC puede devolver un objeto con error si el usuario no existe
+      if (data?.error) {
+        console.log('⚠️ [API] RPC devolvió error en data:', data.error);
+        const err = new Error(data.error);
+        err.code = 'USER_NOT_FOUND';
+        throw err;
+      }
+      
+      console.log('✅ [API] Datos obtenidos correctamente');
+      return data;
+    } catch (e) {
+      console.log('❌ [API] Excepción en getUserInit:', e.message, 'después de', Date.now() - startTime, 'ms');
+      throw e;
     }
-    
-    // El RPC puede devolver un objeto con error si el usuario no existe
-    if (data?.error) {
-      const err = new Error(data.error);
-      err.code = 'USER_NOT_FOUND';
-      throw err;
-    }
-    
-    logger.dev('✅ Datos iniciales del usuario obtenidos');
-    return data;
   }
 };
 
@@ -511,9 +520,11 @@ export const authApi = {
   async _performOAuth(provider) {
     const redirectTo = this.getAuthRedirectUrl('/login');
     
-    // En plataforma nativa, usar in-app browser
+    // En plataforma nativa, usar in-app browser (SFSafariViewController en iOS)
     // AuthContext se encarga de capturar el callback via deep link
-    if (this.isCapacitorNative() && CapacitorBrowser) {
+    console.log('🔐 [OAUTH] isCapacitorNative:', this.isCapacitorNative(), 'hasInAppBrowser:', !!CapacitorInAppBrowser);
+    
+    if (this.isCapacitorNative() && CapacitorInAppBrowser) {
       try {
         // Obtener la URL de OAuth sin redirigir automáticamente
         const { data, error } = await supabase.auth.signInWithOAuth({
@@ -527,21 +538,19 @@ export const authApi = {
         if (error) throw error;
         
         if (data?.url) {
-          logger.dev(`🔐 Abriendo OAuth ${provider} en in-app browser`);
-          logger.dev(`🔗 Redirect URL configurada: ${redirectTo}`);
+          console.log(`🔐 [OAUTH] Abriendo ${provider} con openInSystemBrowser`);
+          console.log(`🔐 [OAUTH] URL: ${data.url.substring(0, 100)}...`);
           
-          // Abrir en in-app browser (SFSafariViewController en iOS)
-          // El callback será capturado por AuthContext via setupDeepLinkHandler
-          await CapacitorBrowser.open({
+          // Usar openInSystemBrowser para forzar SFSafariViewController en iOS
+          // y Chrome Custom Tabs en Android
+          await CapacitorInAppBrowser.openInSystemBrowser({
             url: data.url,
-            presentationStyle: 'popover', // iOS: presentación modal
-            toolbarColor: '#0a0e14',
-            windowName: '_blank'
+            options: DefaultSystemBrowserOptions
           });
           
           // En nativo, no esperamos aquí - AuthContext manejará el callback
           // y actualizará el estado de autenticación automáticamente
-          logger.dev(`✅ Browser abierto para OAuth ${provider} - AuthContext manejará el callback`);
+          logger.dev(`✅ In-app browser abierto para OAuth ${provider}`);
           return null;
         }
       } catch (e) {

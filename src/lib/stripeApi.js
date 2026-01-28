@@ -15,16 +15,25 @@
  * - Crear nuevo webhook endpoint en Stripe Live Mode
  */
 
-import { loadStripe } from '@stripe/stripe-js'
 import logger from './logger'
 
 // 🔧 TEST MODE: Cargar Stripe.js con la publishable key de prueba
 const STRIPE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY
 
-// Solo cargar Stripe si la key está configurada
-const stripePromise = STRIPE_KEY 
-  ? loadStripe(STRIPE_KEY) 
-  : (logger.warn('⚠️ VITE_STRIPE_PUBLISHABLE_KEY no configurada - Stripe deshabilitado'), Promise.resolve(null))
+// 🔑 LAZY LOADING: Solo cargar Stripe cuando se necesite (evita "Illegal constructor" en iOS)
+let stripePromise = null;
+const getStripePromise = async () => {
+  if (!stripePromise) {
+    if (!STRIPE_KEY) {
+      logger.warn('⚠️ VITE_STRIPE_PUBLISHABLE_KEY no configurada - Stripe deshabilitado');
+      return null;
+    }
+    // Importar dinámicamente para evitar carga innecesaria en iOS
+    const { loadStripe } = await import('@stripe/stripe-js');
+    stripePromise = loadStripe(STRIPE_KEY);
+  }
+  return stripePromise;
+};
 
 // URL base de las Edge Functions de Supabase
 const EDGE_FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1'
@@ -244,7 +253,7 @@ export const stripeApi = {
    * @returns {Promise<Stripe>}
    */
   async getStripe() {
-    return await stripePromise
+    return await getStripePromise();
   }
 }
 

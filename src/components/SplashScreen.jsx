@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 /**
  * Splash Screen con branding de Ondeon
@@ -7,20 +7,28 @@ import React, { useState, useEffect } from 'react';
 const SplashScreen = ({ onFinish, minDuration = 2000 }) => {
   const [isVisible, setIsVisible] = useState(true);
   const [isFading, setIsFading] = useState(false);
+  
+  // 🔑 Usar ref para onFinish para evitar que el useEffect se resetee
+  const onFinishRef = useRef(onFinish);
+  onFinishRef.current = onFinish;
 
   useEffect(() => {
+    console.log('🎬 [SplashScreen] Iniciando timer de', minDuration, 'ms');
+    
     // Esperar el tiempo mínimo y luego iniciar fade out
     const timer = setTimeout(() => {
+      console.log('🎬 [SplashScreen] Timer completado, iniciando fade out');
       setIsFading(true);
       // Esperar a que termine la animación de fade
       setTimeout(() => {
+        console.log('🎬 [SplashScreen] Fade completado, llamando onFinish');
         setIsVisible(false);
-        onFinish?.();
+        onFinishRef.current?.();
       }, 500);
     }, minDuration);
 
     return () => clearTimeout(timer);
-  }, [minDuration, onFinish]);
+  }, [minDuration]); // 🔑 Solo depende de minDuration, no de onFinish
 
   if (!isVisible) return null;
 
