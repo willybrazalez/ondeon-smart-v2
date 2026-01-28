@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { initApi, channelsApi, presenceApi, authApi } from '@/lib/api'
+import { initApi, channelsApi, authApi } from '@/lib/api'
 import scheduledContentService from '@/services/scheduledContentService'
 import logger from '@/lib/logger'
 
@@ -106,6 +106,60 @@ const setupDeepLinkHandler = async (handleOAuthCallback) => {
 
 const AuthContext = createContext({})
 
+// ============================================================================
+// CACHÉ LOCAL - Para acceso instantáneo en sesiones existentes
+// ============================================================================
+const USER_CACHE_KEY = 'ondeon_user_cache_v1';
+const CACHE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 horas
+
+const userCache = {
+  save(authUserId, data) {
+    try {
+      const cacheData = {
+        authUserId,
+        data,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(USER_CACHE_KEY, JSON.stringify(cacheData));
+      logger.dev('💾 Datos de usuario guardados en caché');
+    } catch (e) {
+      logger.warn('⚠️ No se pudo guardar caché:', e);
+    }
+  },
+  
+  get(authUserId) {
+    try {
+      const cached = localStorage.getItem(USER_CACHE_KEY);
+      if (!cached) return null;
+      
+      const { authUserId: cachedUserId, data, timestamp } = JSON.parse(cached);
+      
+      // Verificar que es el mismo usuario y no ha expirado
+      if (cachedUserId !== authUserId) {
+        logger.dev('ℹ️ Caché de usuario diferente, ignorando');
+        return null;
+      }
+      
+      if (Date.now() - timestamp > CACHE_MAX_AGE) {
+        logger.dev('ℹ️ Caché expirado, ignorando');
+        this.clear();
+        return null;
+      }
+      
+      logger.dev('⚡ Datos de usuario obtenidos desde caché');
+      return data;
+    } catch (e) {
+      return null;
+    }
+  },
+  
+  clear() {
+    try {
+      localStorage.removeItem(USER_CACHE_KEY);
+    } catch (e) {}
+  }
+};
+
 export const useAuth = () => {
   const context = useContext(AuthContext)
   if (!context) {
@@ -134,6 +188,12 @@ export const AuthProvider = ({ children }) => {
   const [userRole, setUserRole] = useState(null)             // 'admin' | 'user'
   const [emailConfirmed, setEmailConfirmed] = useState(null)  // null=no verificado, true/false
   
+  // Estados de trial y acceso
+  const [isTrialActive, setIsTrialActive] = useState(false)
+  const [canAccessContents, setCanAccessContents] = useState(false)
+  const [daysLeftInTrial, setDaysLeftInTrial] = useState(0)
+  const [planTipo, setPlanTipo] = useState('trial') // 'trial' | 'free' | 'basico' | 'pro'
+  
   // Reproducción manual (bloquea controles)
   const [isManualPlaybackActive, setIsManualPlaybackActive] = useState(false)
   const [manualPlaybackInfo, setManualPlaybackInfo] = useState(null)
@@ -144,6 +204,7 @@ export const AuthProvider = ({ children }) => {
   const lastAuthUserIdRef = useRef(null)
   const loadingUserDataRef = useRef(false) // Lock para evitar cargas concurrentes
   const loadUserInitDataRef = useRef(null) // Ref para función de carga (evita problemas de orden)
+  const cacheAppliedRef = useRef(false) // Flag para saber si el caché ya fue aplicado
 
   // ============================================================================
   // OAUTH CALLBACK HANDLER (para deep links en apps nativas)
@@ -248,6 +309,19 @@ export const AuthProvider = ({ children }) => {
   
   useEffect(() => {
     const getInitialSession = async () => {
+      // 🔑 CRÍTICO: Si el caché ya fue aplicado (por onAuthStateChange),
+      // no sobrescribir loading=true
+      if (cacheAppliedRef.current) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:INIT_SKIP',message:'Skipping getInitialSession - cache already applied',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'INIT'})}).catch(()=>{});
+        // #endregion
+        logger.dev('⚡ Caché ya aplicado, saltando getInitialSession');
+        return;
+      }
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:INIT_START',message:'getInitialSession starting, setLoading(true)',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'INIT'})}).catch(()=>{});
+      // #endregion
       setLoading(true)
 
       // Verificar si estamos en proceso de logout
@@ -255,7 +329,9 @@ export const AuthProvider = ({ children }) => {
       if (isLoggingOut) {
         logger.dev('🚫 Proceso de logout detectado - no restaurar sesión')
         sessionStorage.removeItem('ondeon_logging_out')
-        cleanupAllStorage()
+        // Solo limpiar claves de Supabase, NO el caché de usuario
+        // El caché se limpia explícitamente en signOut()
+        cleanupSupabaseStorage()
         setLoading(false)
         return
       }
@@ -279,6 +355,9 @@ export const AuthProvider = ({ children }) => {
       // Cargar datos completos del usuario
       await loadUserInitData()
       
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:INIT_END',message:'getInitialSession ending, setLoading(false)',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'INIT'})}).catch(()=>{});
+      // #endregion
       setLoading(false)
     }
 
@@ -317,10 +396,23 @@ export const AuthProvider = ({ children }) => {
   
   const loadUserInitData = async (providedUser = null) => {
     // 🔒 Lock para evitar ejecuciones concurrentes
-    // Si ya hay una carga en progreso, no hacer nada
+    // Si ya hay una carga en progreso, esperar a que termine
     if (loadingUserDataRef.current) {
-      logger.dev('⏳ Carga de datos ya en progreso, ignorando llamada duplicada')
-      return
+      logger.dev('⏳ Carga de datos ya en progreso, esperando...')
+      
+      // Esperar hasta que el lock se libere (máximo 65 segundos)
+      const startWait = Date.now()
+      while (loadingUserDataRef.current && (Date.now() - startWait) < 65000) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+      
+      // Si sigue bloqueado después de 65s, algo salió mal - continuar anyway
+      if (loadingUserDataRef.current) {
+        logger.warn('⚠️ Lock no se liberó después de 65s, forzando nueva carga')
+      } else {
+        logger.dev('✅ Lock liberado, datos ya cargados')
+        return
+      }
     }
     
     loadingUserDataRef.current = true
@@ -331,37 +423,18 @@ export const AuthProvider = ({ children }) => {
     try {
       logger.dev('🔄 Cargando datos iniciales del usuario...')
       
-      // 🚀 OPTIMIZACIÓN: Verificación RÁPIDA con timeout de 5 segundos
-      // Si Supabase tarda más de 5s (cold start), asumimos usuario sin registro
-      const QUICK_TIMEOUT = 5000
-      
-      // Helper para crear timeout
-      const withTimeout = (promise, ms, fallback) => {
-        return Promise.race([
-          promise,
-          new Promise((resolve) => setTimeout(() => {
-            logger.dev(`⏱️ Timeout de ${ms}ms alcanzado`)
-            resolve(fallback)
-          }, ms))
-        ])
-      }
-      
       // Si se proporciona el usuario (desde onAuthStateChange), usarlo directamente
       // Esto evita race conditions donde getUser() retorna null durante OAuth
       let authUser = providedUser
       
       if (!authUser) {
-        // Fallback: obtener usuario con timeout (para getInitialSession)
-        const userResult = await withTimeout(
-          supabase.auth.getUser(),
-          QUICK_TIMEOUT,
-          { data: { user: null } }
-        )
+        // Fallback: obtener usuario (para getInitialSession)
+        const userResult = await supabase.auth.getUser()
         authUser = userResult?.data?.user
       }
       
       if (!authUser) {
-        logger.dev('ℹ️ No hay usuario autenticado o timeout')
+        logger.dev('ℹ️ No hay usuario autenticado')
         setRegistroCompleto(false)
         setEmailConfirmed(false)
         registroCompletoSet = true
@@ -375,34 +448,63 @@ export const AuthProvider = ({ children }) => {
       setEmailConfirmed(isEmailConfirmed)
       logger.dev('📧 Email confirmado:', isEmailConfirmed)
       
-      // Consulta directa RÁPIDA para verificar estado de registro (con timeout)
-      const quickCheckResult = await withTimeout(
-        supabase
-          .from('usuarios')
-          .select('id, registro_completo, rol')
-          .eq('auth_user_id', authUser.id)
-          .maybeSingle(),
-        QUICK_TIMEOUT,
-        { data: null, error: { message: 'Quick check timeout' } }
-      )
-      
-      const { data: quickCheck, error: quickError } = quickCheckResult
-      
-      // Si timeout, error, no existe el usuario, o registro_completo es false -> redirigir YA
-      if (quickError || !quickCheck || !quickCheck.registro_completo) {
-        logger.dev('⚡ Verificación rápida: usuario sin registro completo, redirigiendo...')
-        setRegistroCompleto(false)
-        registroCompletoSet = true
-        setUserRole(quickCheck?.rol || 'user')
-        setUserData(quickCheck || null)
-        return // 🔑 NO esperar al RPC lento, redirigir inmediatamente
+      // ⚡ CACHÉ: Verificar si hay datos en caché para acceso instantáneo
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:CACHE_CHECK',message:'Checking cache',data:{authUserId:authUser.id,cacheKey:localStorage.getItem('ondeon_user_cache_v1')?.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'CACHE'})}).catch(()=>{});
+      // #endregion
+      const cachedData = userCache.get(authUser.id);
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:CACHE_RESULT',message:'Cache result',data:{hasCachedData:!!cachedData,hasRegistroCompleto:cachedData?.usuario?.registro_completo},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'CACHE'})}).catch(()=>{});
+      // #endregion
+      if (cachedData && cachedData.usuario?.registro_completo) {
+        logger.dev('⚡ Usando datos de caché para acceso instantáneo');
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:CACHE_APPLYING',message:'Applying cached data',data:{userId:cachedData.usuario?.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'CACHE'})}).catch(()=>{});
+        // #endregion
+        
+        // 🔑 Marcar que el caché fue aplicado ANTES de cualquier setState
+        cacheAppliedRef.current = true;
+        
+        // Aplicar datos del caché inmediatamente
+        setUserData(cachedData.usuario);
+        setUserRole(cachedData.usuario?.rol || 'user');
+        setRegistroCompleto(true);
+        registroCompletoSet = true;
+        lastAuthUserIdRef.current = cachedData.usuario?.id;
+        setRecommendedChannels(cachedData.canales_recomendados || []);
+        setActiveProgramaciones(cachedData.programaciones_activas || []);
+        
+        // 🔑 CRÍTICO: Establecer loading=false para que la UI muestre el contenido
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:CACHE_SETLOADING_FALSE',message:'Setting loading=false from cache',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'CACHE'})}).catch(()=>{});
+        // #endregion
+        setLoading(false);
+        
+        // Cargar canales e iniciar servicios inmediatamente
+        loadAllChannels();
+        scheduledContentService.iniciar(
+          cachedData.usuario.id,
+          cachedData.programaciones_activas || []
+        );
+        
+        // Actualizar datos en background (sin bloquear)
+        initApi.getUserInit().then(freshData => {
+          if (freshData && !freshData.error) {
+            logger.dev('🔄 Datos actualizados desde servidor');
+            setUserData(freshData.usuario);
+            setRecommendedChannels(freshData.canales_recomendados || []);
+            setActiveProgramaciones(freshData.programaciones_activas || []);
+            userCache.save(authUser.id, freshData);
+          }
+        }).catch(e => logger.warn('⚠️ Error actualizando datos en background:', e));
+        
+        return; // Salir temprano - UI ya está lista
       }
       
-      logger.dev('✅ Usuario con registro completo, cargando datos completos...')
-      
-      // Solo si tiene registro completo, cargar datos completos via RPC
+      // Sin caché: cargar datos completos via RPC
+      // 🔑 Timeout de 90s para dar margen a cold starts de Supabase
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout: getUserInit tardó demasiado')), 30000)
+        setTimeout(() => reject(new Error('Timeout: getUserInit tardó demasiado')), 90000)
       )
       
       const initData = await Promise.race([
@@ -417,6 +519,7 @@ export const AuthProvider = ({ children }) => {
         registroCompletoSet = true
         setUserRole('user')
         setUserData(null)
+        userCache.clear(); // Limpiar caché inválido
         return
       }
       
@@ -438,6 +541,14 @@ export const AuthProvider = ({ children }) => {
       // Guardar programaciones activas
       setActiveProgramaciones(initData.programaciones_activas || [])
       
+      // 💾 Guardar en caché para próximos accesos
+      if (isRegistroCompleto) {
+        userCache.save(authUser.id, initData);
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/289a0175-53dc-4c2d-a530-44e9a9e51b05',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.jsx:CACHE_SAVED',message:'Cache saved',data:{authUserId:authUser.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'CACHE'})}).catch(()=>{});
+        // #endregion
+      }
+      
       logger.dev('✅ Datos iniciales cargados:', {
         usuario: initData.usuario?.email,
         rol: initData.usuario?.rol,
@@ -449,7 +560,6 @@ export const AuthProvider = ({ children }) => {
       // Si el registro está completo, cargar canales e iniciar servicios
       if (initData.usuario?.registro_completo) {
         await loadAllChannels()
-        await startPresenceService(initData.usuario.id)
         
         // Iniciar servicio de contenidos programados
         await scheduledContentService.iniciar(
@@ -461,13 +571,24 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       logger.error('❌ Error cargando datos iniciales:', error)
       
-      // Cualquier error significa que el usuario no tiene registro completo
-      // (puede ser USER_NOT_FOUND, RPC no existe, error de BD, timeout, etc.)
-      setRegistroCompleto(false)
-      registroCompletoSet = true
-      setUserRole('user')
-      setUserData(null)
-      logger.dev('ℹ️ Usuario sin datos en BD - requiere completar registro')
+      // 🔑 CRÍTICO: Distinguir entre TIMEOUT y USER_NOT_FOUND
+      // - TIMEOUT: El RPC está lento, NO significa que el usuario no tenga registro
+      // - USER_NOT_FOUND: El usuario realmente no existe en la BD
+      const isTimeoutError = error?.message?.includes('Timeout');
+      if (isTimeoutError) {
+        logger.warn('⚠️ Timeout cargando datos - el usuario puede tener registro, reintentando...')
+        // NO establecer registroCompleto=false en timeout
+        // Dejar en null para que la UI muestre "cargando" y no redirija
+        // El usuario puede reintentar o la siguiente llamada puede funcionar
+        registroCompletoSet = true // Marcar como "procesado" pero no cambiar el valor
+      } else {
+        // Error real: usuario no encontrado, error de BD, etc.
+        setRegistroCompleto(false)
+        registroCompletoSet = true
+        setUserRole('user')
+        setUserData(null)
+        logger.dev('ℹ️ Usuario sin datos en BD - requiere completar registro')
+      }
     } finally {
       // 🔑 FALLBACK: Si por alguna razón registroCompleto no se estableció, hacerlo ahora
       if (!registroCompletoSet) {
@@ -482,6 +603,84 @@ export const AuthProvider = ({ children }) => {
   
   // 🔑 Guardar referencia a la función para uso en OAuth callback
   loadUserInitDataRef.current = loadUserInitData;
+
+  // ============================================================================
+  // VERIFICACIÓN DE TRIAL Y ACCESO
+  // ============================================================================
+  
+  useEffect(() => {
+    const checkTrialAndAccess = async () => {
+      if (!userData) {
+        setIsTrialActive(false)
+        setCanAccessContents(false)
+        setDaysLeftInTrial(0)
+        setPlanTipo('free')
+        return
+      }
+
+      try {
+        // Obtener datos actualizados de la tabla usuarios
+        const { data: userInfo, error: userError } = await supabase
+          .from('usuarios')
+          .select('trial_start_date, plan_tipo')
+          .eq('id', userData.id)
+          .single()
+
+        if (userError || !userInfo) {
+          logger.warn('⚠️ No se pudo obtener info de trial del usuario')
+          setIsTrialActive(false)
+          setCanAccessContents(false)
+          setDaysLeftInTrial(0)
+          setPlanTipo('free')
+          return
+        }
+
+        const trialStartDate = userInfo.trial_start_date ? new Date(userInfo.trial_start_date) : null
+        const currentPlanTipo = userInfo.plan_tipo || 'trial'
+        setPlanTipo(currentPlanTipo)
+
+        // Calcular días restantes de trial
+        let daysLeft = 0
+        let trialActive = false
+        
+        if (trialStartDate) {
+          const now = new Date()
+          const trialEndDate = new Date(trialStartDate)
+          trialEndDate.setDate(trialEndDate.getDate() + 7)
+          
+          const diffTime = trialEndDate - now
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+          
+          daysLeft = Math.max(0, diffDays)
+          trialActive = diffDays > 0
+        }
+
+        setIsTrialActive(trialActive)
+        setDaysLeftInTrial(daysLeft)
+
+        // Verificar si tiene acceso a contenidos
+        // Trial activo O plan pro = acceso completo
+        // Plan básico o free = NO acceso a contenidos
+        const hasContentAccess = trialActive || currentPlanTipo === 'pro'
+        setCanAccessContents(hasContentAccess)
+
+        logger.dev('✅ Estado de acceso calculado:', {
+          trialActive,
+          daysLeft,
+          planTipo: currentPlanTipo,
+          canAccessContents: hasContentAccess
+        })
+
+      } catch (error) {
+        logger.error('❌ Error verificando trial y acceso:', error)
+        setIsTrialActive(false)
+        setCanAccessContents(false)
+        setDaysLeftInTrial(0)
+      }
+    }
+
+    checkTrialAndAccess()
+  }, [userData?.id])
 
   // ============================================================================
   // CANALES
@@ -528,29 +727,6 @@ export const AuthProvider = ({ children }) => {
   }, [channelsLoading, userChannels])
 
   // ============================================================================
-  // PRESENCIA
-  // ============================================================================
-  
-  const startPresenceService = async (usuarioId) => {
-    if (!usuarioId) return
-    
-    try {
-      const { getAppVersion } = await import('@/lib/appVersion')
-      const appVersion = await getAppVersion()
-      
-      // Enviar heartbeat inicial
-      await presenceApi.sendHeartbeat({
-        playbackState: 'idle',
-        appVersion
-      })
-      
-      logger.dev('✅ Presencia iniciada')
-    } catch (e) {
-      logger.warn('⚠️ No se pudo iniciar presencia:', e)
-    }
-  }
-
-  // ============================================================================
   // AUTENTICACIÓN
   // ============================================================================
   
@@ -585,13 +761,6 @@ export const AuthProvider = ({ children }) => {
     // Detener servicio de contenidos programados
     scheduledContentService.detener()
     
-    // Marcar como offline
-    try {
-      await presenceApi.logout()
-    } catch (e) {
-      logger.warn('⚠️ Error marcando offline:', e)
-    }
-    
     // Limpiar estados
     resetAuthState()
     
@@ -625,10 +794,11 @@ export const AuthProvider = ({ children }) => {
     initLoadedRef.current = false
     lastAuthUserIdRef.current = null
     loadingUserDataRef.current = false
+    cacheAppliedRef.current = false
   }
 
-  const cleanupAllStorage = () => {
-    // Limpiar claves de Supabase del localStorage
+  // Limpiar solo claves de Supabase (para proceso de logout detectado en init)
+  const cleanupSupabaseStorage = () => {
     const keysToRemove = []
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
@@ -637,6 +807,14 @@ export const AuthProvider = ({ children }) => {
       }
     }
     keysToRemove.forEach(key => localStorage.removeItem(key))
+  }
+
+  // Limpiar todo el storage (para logout explícito)
+  const cleanupAllStorage = () => {
+    // Limpiar caché de usuario
+    userCache.clear();
+    // Limpiar claves de Supabase
+    cleanupSupabaseStorage();
   }
 
   // ============================================================================
@@ -838,6 +1016,12 @@ export const AuthProvider = ({ children }) => {
     userRole,           // 'admin' | 'user'
     registroCompleto,
     emailConfirmed,     // true si email_confirmed_at no es null
+    
+    // Trial y acceso
+    isTrialActive,      // true si el trial de 7 días está activo
+    canAccessContents,  // true si puede acceder a contenidos (trial activo o plan pro)
+    daysLeftInTrial,    // días restantes del trial
+    planTipo,           // 'trial' | 'free' | 'basico' | 'pro'
     
     // Auth methods
     signUp,

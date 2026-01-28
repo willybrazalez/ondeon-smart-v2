@@ -1,7 +1,6 @@
 import { playlistsApi, songsApi } from '../lib/api.js';
 import { supabase } from '../lib/supabase.js';
 import audioPlayer from './audioPlayerService.js';
-import presence from './advancedPresenceService.js';
 import logger from '../lib/logger.js';
 
 /**
@@ -148,33 +147,8 @@ class AutoDjService {
    * 📊 Registrar canción en historial de reproducción (Supabase)
    */
   async logSongToHistory(song) {
-    try {
-      // Importar optimizedPresenceService dinámicamente (lazy)
-      const { default: optimizedPresenceService } = await import('./optimizedPresenceService.js');
-      
-      if (!song || !this.currentChannel) return;
-      
-      const songData = song?.canciones || song;
-      const title = songData?.titulo || songData?.nombre || 'Sin título';
-      const artist = songData?.artista || 'Artista Desconocido';
-      const duration = Math.floor(songData?.duracion || 180); // segundos
-      
-      // Enviar evento de cambio de canción
-      await optimizedPresenceService.sendSongChanged({
-        song: title,
-        artist,
-        channelId: this.currentChannel.id,
-        channelName: this.currentChannel.nombre || this.currentChannel.name,
-        duration,
-        songId: songData?.id || null,
-        playlistId: this.currentPlaylist?.id || null
-      });
-      
-      logger.dev('📊 Evento de canción enviado:', title);
-    } catch (error) {
-      // Error silencioso - no afecta la reproducción
-      console.debug('⚠️ No se pudo registrar canción en historial:', error.message);
-    }
+    // Función legacy - tracking de presencia eliminado
+    // Mantenida para compatibilidad pero sin implementación
   }
 
   /**
@@ -715,12 +689,8 @@ class AutoDjService {
     // 🔔 Nuevo: notificar presencia al cambiar de canción
     this.onSongChangeHandler = (song) => {
       try {
-        const channelName = this.currentChannel?.nombre || this.currentChannel?.name || null;
-        const title = song?.canciones?.titulo || song?.titulo || null;
-        const artist = song?.canciones?.artista || song?.artista || null;
-        presence.updateNowPlaying({ channel: channelName, currentSong: title, artist });
       } catch (e) {
-        // Silenciar errores de presencia para no afectar reproducción
+        // Silenciar errores
       }
     };
     audioPlayer.on('onSongChange', this.onSongChangeHandler);
@@ -1237,16 +1207,6 @@ class AutoDjService {
       // Si ya está reproduciendo, pausar
       if (audioState.isPlaying) {
         audioPlayer.pause();
-        
-        // 📊 Registrar cambio de estado a pausado
-        const optimizedPresenceService = (await import('./optimizedPresenceService.js')).default;
-        await optimizedPresenceService.sendPlaybackStateChanged({
-          state: 'paused',
-          previousState: 'playing',
-          channelId: this.currentChannelId,
-          channelName: this.currentChannelName
-        });
-        
         return;
       }
 
@@ -1284,15 +1244,6 @@ class AutoDjService {
       let playSucceeded = await audioPlayer.play();
       if (playSucceeded) {
         logger.dev('▶️ Reproducción iniciada por interacción del usuario');
-        
-        // 📊 Registrar cambio de estado a reproduciendo
-        const optimizedPresenceService = (await import('./optimizedPresenceService.js')).default;
-        await optimizedPresenceService.sendPlaybackStateChanged({
-          state: 'playing',
-          previousState: 'paused',
-          channelId: this.currentChannelId,
-          channelName: this.currentChannelName
-        });
       } else {
         logger.warn('⚠️ Reproducción no pudo iniciarse; reintentando tras recarga...');
         if (this.currentSong) {

@@ -324,19 +324,6 @@ class ScheduledContentService {
         this.ultimasEjecuciones.set(prog.id, Date.now());
         this.guardarTimestampsEnStorage();
         
-        // Enviar evento de presencia
-        try {
-          const optimizedPresenceService = (await import('./optimizedPresenceService.js')).default;
-          await optimizedPresenceService.sendScheduledContentStarted({
-            title: contentName,
-            type: contenido.tipo || 'contenido',
-            programacionId: prog.id,
-            duration
-          });
-        } catch (e) {
-          // Ignorar errores de presencia
-        }
-        
         logger.dev('✅ Programación completada:', prog.nombre);
       } else {
         // Desbloquear si falló

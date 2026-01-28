@@ -51,12 +51,8 @@ import SplashScreen from '@/components/SplashScreen';
 import { supabase } from '@/lib/supabase';
 import { useAutoDj } from './hooks/useAutodjHook';
 import autoDj from './services/autoDjService';
-import advancedPresenceService from '@/services/advancedPresenceService';
 import scheduledContentService from '@/services/scheduledContentService';
 import logger from '@/lib/logger';
-import { useSessionMonitor } from '@/hooks/useSessionMonitor';
-import SessionClosedModal from '@/components/SessionClosedModal';
-import optimizedPresenceService from '@/services/optimizedPresenceService';
 import { PlayerProvider } from '@/contexts/PlayerContext';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import MobileLayout from '@/layouts/MobileLayout';
@@ -484,11 +480,6 @@ function AppContent() {
 
   // 🔑 NOTA: La verificación de suscripción para gestores en Electron se hace en AuthContext
   // Si el gestor no tiene suscripción activa, AuthContext NO establece la sesión y abre el dashboard web
-  
-  // 🔐 Monitoreo de sesión única - SOLO si el reproductor está habilitado
-  const userId = user?.id || user?.usuario_id || user?.user_id;
-  const deviceId = optimizedPresenceService.deviceId;
-  const { sessionClosed } = useSessionMonitor(userId, deviceId, shouldEnablePlayer);
   
   // Hook del AutoDJ - DESHABILITADO para usuarios básicos en web
   const {
@@ -934,39 +925,6 @@ function AppContent() {
     channelsLoadAttemptedRef.current = false;
   }, [user?.id]);
 
-  // 🔧 NUEVO: Actualizar estado de presencia según actividad del reproductor
-  // 🚫 DESHABILITADO para usuarios básicos en web
-  useEffect(() => {
-    if (!shouldEnablePlayer || !advancedPresenceService.isPresenceActive() || !djState) return;
-    
-    // 🔧 CRÍTICO: No actualizar estado de presencia durante cambio de canal
-    // Esto evita que el botón cambie de estado temporalmente
-    if (isChangingChannel || wasPlayingBeforeChange) {
-      return;
-    }
-
-    if (djState.isPlaying) {
-      advancedPresenceService.updateState('playing', {
-        currentSong: currentTrackInfo?.title,
-        artist: currentTrackInfo?.artist,
-        channel: currentChannel?.name
-      });
-    } else if (djState.isPaused) {
-      advancedPresenceService.updateState('paused', {
-        channel: currentChannel?.name,
-        currentSong: currentTrackInfo?.title,
-        artist: currentTrackInfo?.artist
-      });
-    } else {
-      // Si no está reproduciendo ni pausado, el usuario está "conectado"
-      advancedPresenceService.updateState('conectado', {
-        currentPage: location.pathname,
-        channel: currentChannel?.name,
-        currentSong: currentTrackInfo?.title,
-        artist: currentTrackInfo?.artist
-      });
-    }
-  }, [shouldEnablePlayer, djState?.isPlaying, djState?.isPaused, currentTrackInfo, currentChannel, location.pathname, isChangingChannel, wasPlayingBeforeChange]);
 
   // 🔧 OPTIMIZACIÓN: Inicialización del AutoDJ con debouncing
   // 🚫 DESHABILITADO para usuarios básicos en web
@@ -1104,11 +1062,10 @@ function AppContent() {
       
       // Ejecutar limpieza en paralelo
       await Promise.allSettled([
-        withTimeout(advancedPresenceService.stopPresence?.(), 2000),
         withTimeout(autoDj?.stop?.(), 1000),
         audioPlayer?.stop?.(),
         audioPlayer?.reset?.(),
-        autoDj?.reset?.(),
+        autoDj?.reset?.()
       ]);
       
       logger.dev('✅ Servicios detenidos');
@@ -1227,20 +1184,6 @@ function AppContent() {
       
       logger.dev('🎛️ Cambiando canal a:', channel.nombre, '- Estaba reproduciendo:', wasPlaying);
       
-      // 📊 Enviar evento de cambio de canal
-      try {
-        const { default: optimizedPresenceService } = await import('./services/optimizedPresenceService.js');
-        await optimizedPresenceService.sendChannelChanged({
-          fromChannel: currentChannel?.name || currentChannel?.nombre || 'Ninguno',
-          toChannel: channel.nombre || channel.name,
-          fromChannelId: currentChannel?.id || null,
-          toChannelId: channel.id
-        });
-        logger.dev('📊 Evento de cambio de canal enviado:', `${currentChannel?.name || 'Ninguno'} → ${channel.nombre}`);
-      } catch (error) {
-        logger.warn('⚠️ No se pudo enviar evento de cambio de canal:', error.message);
-      }
-      
       // 🔧 OPTIMIZACIÓN: Estado optimista - actualizar UI inmediatamente
       const channelFormatted = {
         id: channel.id,
@@ -1307,9 +1250,33 @@ function AppContent() {
   if (user && registroCompleto !== true && !isAuthRoute) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0a0e14]">
-        <div className="text-center">
-          <div className="w-10 h-10 border-2 border-[#A2D9F7]/30 border-t-[#A2D9F7] rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-white/40 text-sm">Verificando cuenta...</p>
+        <div className="text-center space-y-6">
+          {/* Logo */}
+          <div className="relative mb-8">
+            <div className="absolute inset-0 blur-2xl bg-[#A2D9F7]/20 rounded-full scale-150 animate-pulse" />
+            <img
+              src="/assets/icono-ondeon.png"
+              alt="Ondeon"
+              className="relative w-20 h-20 mx-auto drop-shadow-2xl animate-[float_3s_ease-in-out_infinite]"
+            />
+          </div>
+          
+          {/* Spinner moderno */}
+          <div className="relative w-16 h-16 mx-auto">
+            <div className="absolute inset-0 border-4 border-[#A2D9F7]/20 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-transparent border-t-[#A2D9F7] rounded-full animate-spin"></div>
+          </div>
+          
+          {/* Texto con animación */}
+          <div className="space-y-2">
+            <p className="text-white text-base font-medium">Verificando cuenta</p>
+            <p className="text-white/40 text-sm animate-pulse">Esto solo tomará unos segundos...</p>
+          </div>
+          
+          {/* Barra de progreso animada */}
+          <div className="w-64 h-1 bg-white/10 rounded-full mx-auto overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-[#A2D9F7] to-[#7AB8E0] rounded-full animate-[progress_2s_ease-in-out_infinite]"></div>
+          </div>
         </div>
       </div>
     );
@@ -1330,9 +1297,6 @@ function AppContent() {
           onFinish={() => setShowSplash(false)} 
         />
       )}
-      
-      {/* 🔐 Modal de sesión cerrada */}
-      <SessionClosedModal isOpen={sessionClosed} />
       
       {/* 🖥️ Background dinámico en rutas del reproductor (desktop y móvil) */}
       {isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && currentPath === '/' && (

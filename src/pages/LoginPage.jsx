@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { FcGoogle } from 'react-icons/fc';
 import { FaApple } from 'react-icons/fa';
-import { X, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { X, CheckCircle2, XCircle, AlertCircle, ArrowLeft, Mail } from 'lucide-react';
 import WaveBackground from '@/components/player/WaveBackground';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -15,6 +15,23 @@ import { authApi } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import logger from '@/lib/logger';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// Hook para detectar si es móvil
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+  
+  return isMobile;
+};
 
 // Ruta post-login simplificada - todos los usuarios van al reproductor
 const getPostLoginRoute = () => '/';
@@ -27,6 +44,15 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { signIn, signInWithGoogle, signInWithApple, subscriptionRequired, clearSubscriptionRequired } = useAuth();
+  
+  // 📱 Estado para la vista móvil tipo Spotify
+  const isMobile = useIsMobile();
+  const [mobileView, setMobileView] = useState('buttons'); // 'buttons' | 'email-form'
+  
+  // Resetear vista móvil al montar el componente (evita flash al navegar)
+  useEffect(() => {
+    setMobileView('buttons');
+  }, []);
   
   // 🔐 Estado para el modal de recuperación de contraseña (solo email)
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
@@ -382,6 +408,273 @@ export default function LoginPage() {
     }
   };
 
+  // 📱 Vista móvil tipo Spotify
+  if (isMobile) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden px-6 py-8 safe-area-top safe-area-bottom">
+        <WaveBackground isPlaying={true} />
+        
+        {/* Contenido principal - centrado */}
+        <div className="w-full max-w-md z-10">
+          <Card className="p-6 rounded-3xl shadow-2xl flex flex-col items-center w-full bg-card/95 dark:bg-[#181c24]/95 backdrop-blur-xl border border-white/5">
+            
+            {/* Logo - siempre visible */}
+            <img 
+              src={`${import.meta.env.BASE_URL || ''}assets/icono-ondeon.png`} 
+              alt="Logo Ondeón" 
+              className="h-16 mb-4"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+            
+            {/* Título - siempre visible */}
+            <h1 className="text-2xl font-bold text-center text-white mb-1">
+              {t('auth.login')}
+            </h1>
+            <p className="text-center text-gray-400 text-sm mb-6">
+              {t('auth.noAccount')}{' '}
+              <Link to="/registro" onClick={() => setMobileView('buttons')} className="underline text-primary hover:text-primary/80 transition-colors font-medium">
+                {t('auth.register')}
+              </Link>
+            </p>
+            
+            {/* 🔒 Banner de suscripción requerida */}
+            {subscriptionRequired && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full mb-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30"
+              >
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm text-amber-200">Suscripción requerida para usar el reproductor.</p>
+                    <button 
+                      onClick={clearSubscriptionRequired}
+                      className="text-xs text-amber-400 underline mt-2"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+            
+            {error && (
+              <div className="w-full mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+                <p className="text-red-400 text-sm text-center">{error}</p>
+              </div>
+            )}
+            
+            <AnimatePresence mode="wait">
+              {mobileView === 'buttons' ? (
+                <motion.div
+                  key="buttons"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="w-full flex flex-col items-center overflow-hidden"
+                >
+                  {/* Botones de login */}
+                  <div className="w-full flex flex-col gap-3">
+                    <Button
+                      onClick={handleGoogleLogin}
+                      disabled={loading}
+                      className="w-full flex items-center justify-center gap-3 h-14 rounded-full border border-white/20 bg-transparent hover:bg-white/10 text-white font-medium text-base transition-all active:scale-[0.98]"
+                      variant="outline"
+                    >
+                      <FcGoogle size={24} /> 
+                      <span>{t('auth.continueWithGoogle')}</span>
+                    </Button>
+                    
+                    <Button
+                      onClick={handleAppleLogin}
+                      disabled={loading}
+                      className="w-full flex items-center justify-center gap-3 h-14 rounded-full bg-white text-black hover:bg-white/90 font-medium text-base transition-all active:scale-[0.98]"
+                    >
+                      <FaApple size={24} /> 
+                      <span>{t('auth.continueWithApple')}</span>
+                    </Button>
+                    
+                    {/* Separador */}
+                    <div className="w-full flex items-center gap-4 my-2">
+                      <div className="flex-1 h-px bg-white/10" />
+                      <span className="text-xs text-gray-500 uppercase tracking-wider">{t('auth.or', 'o')}</span>
+                      <div className="flex-1 h-px bg-white/10" />
+                    </div>
+                    
+                    <Button
+                      onClick={() => { setError(''); setMobileView('email-form'); }}
+                      disabled={loading}
+                      className="w-full flex items-center justify-center gap-3 h-14 rounded-full bg-gradient-to-r from-[#A2D9F7] to-[#7BC4E0] text-[#0a0e14] font-semibold text-base transition-all active:scale-[0.98] shadow-lg shadow-[#A2D9F7]/20"
+                    >
+                      <Mail size={20} />
+                      <span>Continuar con correo</span>
+                    </Button>
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="email-form"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="w-full flex flex-col items-center overflow-hidden"
+                >
+                  {/* Formulario de email */}
+                  <form className="w-full flex flex-col gap-4" onSubmit={handleSubmit}>
+                    <div className="space-y-2">
+                      <Label className="text-gray-300 text-sm font-medium">{t('auth.email')}</Label>
+                      <Input 
+                        name="email" 
+                        type="email" 
+                        value={form.email} 
+                        onChange={handleChange} 
+                        required 
+                        disabled={loading}
+                        autoComplete="username"
+                        placeholder="tu@email.com"
+                        className="h-14 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500 text-base"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2 relative">
+                      <Label className="text-gray-300 text-sm font-medium">{t('auth.password')}</Label>
+                      <Input
+                        name="password"
+                        type={showPassword ? 'text' : 'password'}
+                        value={form.password}
+                        onChange={handleChange}
+                        required
+                        disabled={loading}
+                        autoComplete="current-password"
+                        placeholder="Tu contraseña"
+                        className="h-14 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500 text-base pr-20"
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-4 top-10 text-sm text-gray-400 hover:text-white transition-colors"
+                        onClick={() => setShowPassword((v) => !v)}
+                        tabIndex={-1}
+                        disabled={loading}
+                      >
+                        {showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
+                      </button>
+                    </div>
+                    
+                    <button
+                      type="button"
+                      onClick={handleOpenChangePasswordModal}
+                      className="text-sm text-primary underline self-end hover:text-primary/80 transition-colors"
+                    >
+                      {t('auth.forgotPassword')}
+                    </button>
+                    
+                    <Button 
+                      className="w-full h-14 mt-2 bg-gradient-to-r from-[#A2D9F7] to-[#7BC4E0] text-[#0a0e14] font-semibold text-base rounded-full shadow-lg shadow-[#A2D9F7]/20 hover:shadow-[#A2D9F7]/40 transition-all active:scale-[0.98]" 
+                      type="submit"
+                      disabled={loading}
+                    >
+                      {loading ? t('auth.signingIn') : t('auth.signIn')}
+                    </Button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => { setError(''); setMobileView('buttons'); }}
+                      className="text-sm text-gray-400 hover:text-white transition-colors mt-2"
+                    >
+                      ← Volver
+                    </button>
+                  </form>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </Card>
+        </div>
+
+        {/* 🔐 Modal de Recuperación de Contraseña */}
+        <AnimatePresence>
+          {showChangePasswordModal && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center">
+              <motion.div
+                initial={{ opacity: 0, y: 100 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 100 }}
+                className="bg-[#181c24] rounded-t-3xl shadow-2xl w-full max-h-[90vh] overflow-auto"
+              >
+                <div className="p-6">
+                  <div className="w-12 h-1 bg-gray-600 rounded-full mx-auto mb-6" />
+                  
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xl font-bold text-white">{t('password.recoverPassword')}</h3>
+                    <button
+                      onClick={handleCloseChangePasswordModal}
+                      className="p-2 text-gray-400 hover:text-white"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  <p className="text-sm text-gray-400 mb-6">
+                    {t('password.passwordRecoveryInstructions')}
+                  </p>
+
+                  {changePasswordError && (
+                    <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+                      <p className="text-red-400 text-sm">{changePasswordError}</p>
+                    </div>
+                  )}
+
+                  {changePasswordSuccess && (
+                    <div className="mb-4 p-3 rounded-xl bg-green-500/10 border border-green-500/20">
+                      <p className="text-green-400 text-sm">{changePasswordSuccess}</p>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleChangePasswordSubmit} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label className="text-gray-300 text-sm">{t('password.email')}</Label>
+                      <Input
+                        type="email"
+                        value={recoveryEmail}
+                        onChange={(e) => setRecoveryEmail(e.target.value)}
+                        required
+                        disabled={changePasswordLoading}
+                        placeholder="tu@email.com"
+                        className="h-14 bg-white/5 border-white/10 rounded-xl text-base"
+                      />
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="flex-1 h-12 rounded-full border-white/20"
+                        onClick={handleCloseChangePasswordModal}
+                        disabled={changePasswordLoading}
+                      >
+                        {t('common.cancel')}
+                      </Button>
+                      <Button
+                        type="submit"
+                        className="flex-1 h-12 rounded-full bg-gradient-to-r from-[#A2D9F7] to-[#7BC4E0] text-[#0a0e14] font-semibold"
+                        disabled={changePasswordLoading}
+                      >
+                        {changePasswordLoading ? t('password.sending') : t('password.sendEmail')}
+                      </Button>
+                    </div>
+                  </form>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
+  // 🖥️ Vista desktop (original)
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-4 py-8 safe-area-top safe-area-bottom">
       <WaveBackground isPlaying={true} />

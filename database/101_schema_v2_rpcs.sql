@@ -19,10 +19,12 @@ AS $$
 DECLARE
   v_usuario_id UUID;
   v_sector_id UUID;
+  v_idioma TEXT;
   v_result JSON;
 BEGIN
-  -- Obtener usuario_id desde auth.uid()
-  SELECT id, sector_id INTO v_usuario_id, v_sector_id
+  -- Obtener datos básicos del usuario (una sola consulta)
+  SELECT id, sector_id, idioma 
+  INTO v_usuario_id, v_sector_id, v_idioma
   FROM usuarios
   WHERE auth_user_id = auth.uid();
   
@@ -39,7 +41,7 @@ BEGIN
           id, nombre, email, telefono, establecimiento,
           direccion, localidad, provincia, codigo_postal, pais,
           sector_id, idioma, rol, activo, registro_completo,
-          created_at, last_seen_at
+          created_at, last_seen_at, trial_start_date, plan_tipo
         FROM usuarios
         WHERE id = v_usuario_id
       ) u
@@ -83,7 +85,7 @@ BEGIN
         
         UNION ALL
         
-        -- Programaciones de sector (no desactivadas por el usuario)
+        -- Programaciones de sector (optimizado con LEFT JOIN)
         SELECT 
           pr.id, pr.nombre, pr.descripcion, pr.tipo,
           pr.frecuencia_minutos, pr.hora_inicio, pr.hora_fin,
@@ -102,26 +104,35 @@ BEGIN
             WHERE pc.programacion_id = pr.id AND pc.activo = true
           ) as contenidos
         FROM programaciones pr
+        LEFT JOIN usuario_programaciones_desactivadas upd 
+          ON pr.id = upd.programacion_id AND upd.usuario_id = v_usuario_id
         WHERE pr.sector_id = v_sector_id
         AND pr.usuario_id IS NULL
         AND pr.estado = 'activo'
-        AND pr.id NOT IN (
-          SELECT programacion_id 
-          FROM usuario_programaciones_desactivadas 
-          WHERE usuario_id = v_usuario_id
-        )
-        -- Filtrar por idioma del usuario si la programación tiene idioma definido
-        AND (pr.idioma IS NULL OR pr.idioma = (SELECT idioma FROM usuarios WHERE id = v_usuario_id))
+        AND upd.programacion_id IS NULL  -- No está desactivada (LEFT JOIN es más rápido)
+        AND (pr.idioma IS NULL OR pr.idioma = v_idioma)  -- Usar variable en lugar de subconsulta
       ) p
     )
   ) INTO v_result;
   
-  -- Actualizar last_seen_at
+  -- Actualizar last_seen_at (sin bloqueo)
   UPDATE usuarios SET last_seen_at = now() WHERE id = v_usuario_id;
   
   RETURN v_result;
 END;
 $$;
+
+-- Agregar índice compuesto para optimizar programaciones de sector
+CREATE INDEX IF NOT EXISTS idx_programaciones_sector_activo 
+ON programaciones(sector_id, estado) 
+WHERE usuario_id IS NULL AND estado = 'activo';
+
+-- Agregar índice para programacion_contenidos
+CREATE INDEX IF NOT EXISTS idx_prog_contenidos_activo
+ON programacion_contenidos(programacion_id, activo)
+WHERE activo = true;
+
+COMMENT ON FUNCTION rpc_get_user_init IS 'Optimizado: LEFT JOIN en lugar de NOT IN, variables materializadas, índices agregados';
 
 -- ============================================================================
 -- FUNCIÓN: rpc_heartbeat

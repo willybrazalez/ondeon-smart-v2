@@ -12,13 +12,13 @@ import { useRole } from '@/hooks/useRole';
 import { PermissionGated } from '@/components/RoleProtectedRoute';
 import { contentAssignmentsApi } from '@/lib/api';
 import audioPlayer from '@/services/audioPlayerService';
-import optimizedPresenceService from '@/services/optimizedPresenceService';
 import { useToast } from '@/components/ui/use-toast';
 import logger from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
 import { convertToCloudFrontUrl } from '@/lib/cloudfrontUrls.js';
 import ContentCard from '@/components/ContentCard';
 import { stripeApi } from '@/lib/stripeApi';
+import SubscriptionGate from '@/components/SubscriptionGate';
 
 const recentAdsData = [
   { id: 'adR001', name: 'Bienestar Digestivo Semanal', type: 'Consejo de Salud', duration: '45s', status: 'Activo', lastModified: '2025-05-26', voice: 'Narrador Sereno', keywords: ['digestión', 'salud intestinal', 'probióticos', 'bienestar'], color: 'bg-sky-500/15 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300 border-sky-500/30' },
@@ -48,7 +48,7 @@ const getTypeIcon = (type) => {
 };
 
 const ContentsPage = () => {
-  const { user, userRole, userPlan, isManualPlaybackActive, startManualPlayback, loading } = useAuth();
+  const { user, userRole, userPlan, isManualPlaybackActive, startManualPlayback, loading, canAccessContents } = useAuth();
   const { hasPermission } = useRole();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
@@ -274,12 +274,6 @@ const ContentsPage = () => {
         await audioPlayer.playContentWithFade(cloudFrontUrl, duration);
       }
       
-      // Registrar fin de contenido manual
-      await optimizedPresenceService.sendManualContentEnded({
-        title: contentName,
-        actualDuration: duration
-      });
-      
       toast({ 
         title: 'Reproducción finalizada', 
         description: `${contentName} ha terminado - Controles desbloqueados`,
@@ -287,16 +281,6 @@ const ContentsPage = () => {
       });
     } catch (err) {
       toast({ title: 'Error de reproducción', description: 'No se pudo reproducir el contenido', variant: 'destructive' });
-      
-      // Registrar fin incluso en error
-      try {
-        await optimizedPresenceService.sendManualContentEnded({
-          title: contentName,
-          actualDuration: 0
-        });
-      } catch (e) {
-        // Ignorar error de logging
-      }
     } finally {
       setPlayingContentId(null);
     }
@@ -364,6 +348,12 @@ const ContentsPage = () => {
         </div>
       </div>
     );
+  }
+
+  // 🔒 Guard: Verificar acceso a contenidos (trial o suscripción activa)
+  if (!canAccessContents) {
+    logger.dev('🔒 Usuario sin acceso a contenidos - mostrando SubscriptionGate');
+    return <SubscriptionGate />;
   }
 
   return (

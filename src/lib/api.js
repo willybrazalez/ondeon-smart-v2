@@ -429,73 +429,6 @@ export const contenidosApi = {
 };
 
 // ============================================================================
-// PRESENCE API - Estado y presencia del usuario
-// ============================================================================
-
-export const presenceApi = {
-  /**
-   * Envía heartbeat para actualizar estado del usuario.
-   * Usa rpc_heartbeat
-   */
-  async sendHeartbeat({
-    canalId = null,
-    canalNombre = null,
-    cancionTitulo = null,
-    cancionArtista = null,
-    playbackState = 'playing',
-    deviceId = null,
-    appVersion = null
-  } = {}) {
-    // Obtener deviceId si no se proporciona
-    const finalDeviceId = deviceId || (() => {
-      if (typeof window === 'undefined') return 'default';
-      let id = localStorage.getItem('ondeon_device_id');
-      if (!id) {
-        id = crypto.randomUUID();
-        localStorage.setItem('ondeon_device_id', id);
-      }
-      return id;
-    })();
-    
-    const { data, error } = await supabase.rpc('rpc_heartbeat', {
-      p_canal_id: canalId,
-      p_canal_nombre: canalNombre,
-      p_cancion_titulo: cancionTitulo,
-      p_cancion_artista: cancionArtista,
-      p_playback_state: playbackState,
-      p_device_id: finalDeviceId,
-      p_app_version: appVersion
-    });
-    
-    if (error) {
-      // No loguear error en heartbeats fallidos (pueden ser frecuentes)
-      if (import.meta.env.DEV) {
-        logger.dev('⚠️ Heartbeat fallido:', error.message);
-      }
-      return { success: false, error: error.message };
-    }
-    
-    return data || { success: true };
-  },
-  
-  /**
-   * Marca al usuario como offline (logout).
-   * Usa rpc_user_logout
-   */
-  async logout() {
-    const { data, error } = await supabase.rpc('rpc_user_logout');
-    
-    if (error) {
-      logger.error('❌ Error en rpc_user_logout:', error);
-      // No lanzar error, el logout debe continuar
-    }
-    
-    logger.dev('✅ Usuario marcado como offline');
-    return data || { success: true };
-  }
-};
-
-// ============================================================================
 // AUTH API - Autenticación (solo Supabase Auth)
 // ============================================================================
 
@@ -632,13 +565,6 @@ export const authApi = {
    * Logout
    */
   async signOut() {
-    // Marcar como offline antes de cerrar sesión
-    try {
-      await presenceApi.logout();
-    } catch (e) {
-      // Ignorar errores
-    }
-    
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
   }
@@ -851,7 +777,6 @@ export default {
   playlistsApi,
   songsApi,
   contenidosApi,
-  presenceApi,
   authApi,
   usuariosApi,
   contentAssignmentsApi

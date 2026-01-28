@@ -5,14 +5,31 @@ import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { FcGoogle } from 'react-icons/fc';
 import { FaApple } from 'react-icons/fa';
-import { CreditCard, Check, Loader2, User, Sparkles, Music, Mail, RefreshCw } from 'lucide-react';
+import { CreditCard, Check, Loader2, User, Sparkles, Music, Mail, RefreshCw, ArrowLeft } from 'lucide-react';
 import WaveBackground from '@/components/player/WaveBackground';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { usuariosApi } from '@/lib/api';
-import { stripeApi, STRIPE_PRICES } from '@/lib/stripeApi';
 import logger from '@/lib/logger';
+import { motion, AnimatePresence } from 'framer-motion';
+
+// Hook para detectar si es móvil
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+  
+  return isMobile;
+};
 
 // Sectores por defecto (se cargan dinámicamente desde BD)
 const DEFAULT_SECTORES = [
@@ -38,9 +55,14 @@ export default function RegisterPage() {
   const [resendingEmail, setResendingEmail] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
   
-  // Plan selection
-  const [selectedPlan, setSelectedPlan] = useState('pro'); // 'basico' o 'pro'
-  const [billingInterval, setBillingInterval] = useState('anual'); // 'mensual' o 'anual' - Por defecto anual para mostrar mejor precio
+  // 📱 Estado para la vista móvil tipo Spotify
+  const isMobile = useIsMobile();
+  const [mobileView, setMobileView] = useState('buttons'); // 'buttons' | 'email-form' (solo para paso 1)
+  
+  // Resetear vista móvil al montar el componente (evita flash al navegar)
+  useEffect(() => {
+    setMobileView('buttons');
+  }, []);
   
   // Sectores cargados desde BD
   const [sectores, setSectores] = useState(DEFAULT_SECTORES);
@@ -147,7 +169,7 @@ export default function RegisterPage() {
   
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { signUp, signInWithGoogle, signInWithApple, registroCompleto, loading: authLoading } = useAuth();
+  const { signUp, signInWithGoogle, signInWithApple, registroCompleto, loading: authLoading, loadUserInitData } = useAuth();
   
   // Verificar si volvió del checkout cancelado o viene de login con registro incompleto
   useEffect(() => {
@@ -422,22 +444,20 @@ export default function RegisterPage() {
     'Crea tu cuenta',
     'Verifica tu correo',
     'Completa tu perfil',
-    'Activa tu suscripción',
   ];
 
   const stepDescriptions = [
     '',
-    '7 días gratis, cancela cuando quieras',
+    '7 días gratis, sin tarjeta',
     'Usa tu correo electrónico',
     'Revisa tu bandeja de entrada',
     'Cuéntanos sobre ti',
-    'Solo necesitas tu tarjeta',
   ];
 
   // Indicador de pasos
   const StepIndicator = () => (
     <div className="flex items-center justify-center gap-2 mb-4">
-      {[1, 2, 3, 4, 5].map((s) => (
+      {[1, 2, 3, 4].map((s) => (
         <div
           key={s}
           className={`w-2 h-2 rounded-full transition-all ${
@@ -806,7 +826,7 @@ export default function RegisterPage() {
     }
   };
 
-  // Completar perfil y pasar a pago
+  // Completar perfil - Ya NO requiere pago, se activa trial automáticamente
   const handleCompleteProfile = async (e) => {
     e.preventDefault();
     setError('');
@@ -855,9 +875,7 @@ export default function RegisterPage() {
         throw new Error('No se encontró el ID del usuario');
       }
       
-      // 🔑 CRÍTICO: Usar UPSERT para crear el usuario si no existe
-      // Esto soluciona el problema donde el registro nunca se creaba antes del checkout
-      logger.dev('🔄 Creando/actualizando public.usuarios con UPSERT...');
+      logger.dev('🔄 Creando/actualizando public.usuarios con trial automático...');
       
       // 🔑 sector_id ahora es UUID (o null si eligió "otro")
       const sectorIdValue = form.sectorId && form.sectorId !== 'otro' ? form.sectorId : null;
@@ -870,8 +888,10 @@ export default function RegisterPage() {
         establecimiento: form.establecimiento,
         sector_id: sectorIdValue,
         notas: form.sectorId === 'otro' ? `Sector: ${form.sectorOtro}` : null,
-        rol: 'user', // v2: rol es texto ('admin', 'user')
-        registro_completo: false, // Se marcará true después del pago exitoso
+        rol: 'user',
+        registro_completo: true, // ✅ Se marca true inmediatamente (trial de 7 días)
+        trial_start_date: new Date().toISOString(), // ✅ Inicia trial ahora
+        plan_tipo: 'trial' // ✅ Usuario en periodo de prueba
       };
       
       const { data: upsertedUser, error: upsertError } = await supabase
@@ -887,11 +907,9 @@ export default function RegisterPage() {
         logger.warn('❌ Error en upsert de usuarios:', upsertError);
         throw upsertError;
       }
-      logger.dev('✅ Usuario creado/actualizado en public.usuarios:', upsertedUser?.id);
-      // NOTA: user_current_state se crea automáticamente al primer heartbeat via rpc_heartbeat
+      logger.dev('✅ Usuario creado con trial de 7 días:', upsertedUser?.id);
 
-      // SEGUNDO: Actualizar metadata en Supabase Auth (puede disparar re-render)
-      // Lo hacemos en segundo lugar y NO esperamos a que termine antes de avanzar
+      // Actualizar metadata en Supabase Auth
       logger.dev('🔄 Actualizando metadata en Supabase Auth...');
       supabase.auth.updateUser({
         data: {
@@ -900,7 +918,7 @@ export default function RegisterPage() {
           establecimiento: form.establecimiento,
           sector_id: sectorIdValue,
           sector_otro: form.sectorId === 'otro' ? form.sectorOtro : null,
-          rol: 'user' // v2: rol es texto
+          rol: 'user'
         }
       }).then(({ error: authUpdateError }) => {
         if (authUpdateError) {
@@ -910,87 +928,21 @@ export default function RegisterPage() {
         }
       });
 
-      logger.dev('➡️ Avanzando al paso 5 (pago)');
-      setStep(5); // Ir a pago
+      // Recargar datos del usuario en AuthContext
+      await loadUserInitData();
+
+      logger.dev('✅ Registro completado - Trial de 7 días activado');
+      logger.dev('➡️ Redirigiendo al reproductor...');
+      
+      // Redirigir al reproductor (home)
+      navigate('/');
+      
     } catch (err) {
-      logger.error('Error actualizando perfil:', err);
+      logger.error('Error completando registro:', err);
       setError('Error guardando los datos. Intenta de nuevo.');
     } finally {
       setLoading(false);
       isSavingRef.current = false;
-    }
-  };
-
-  // Obtener precio actual basado en selección
-  const getCurrentPrice = (planKey = selectedPlan) => {
-    const plan = STRIPE_PRICES[planKey];
-    return billingInterval === 'mensual' 
-      ? { price_id: plan.mensual, amount: plan.precioMensual, label: `€${plan.precioMensual}/mes` }
-      : { price_id: plan.anual, amount: plan.precioAnual, label: `€${plan.precioMensualAnual}/mes (€${plan.precioAnual}/año)` };
-  };
-
-  // Iniciar checkout de Stripe
-  // planKey: 'basico' o 'pro' - se pasa explícitamente para evitar problemas con state async
-  const handleStartCheckout = async (planKey = selectedPlan) => {
-    setError('');
-    setLoading(true);
-
-    try {
-      let currentUser = userCreated;
-      
-      if (!currentUser?.id) {
-        // Verificar sesión actual
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          setError('Sesión no válida. Por favor, inicia sesión de nuevo.');
-          setStep(1);
-          setLoading(false);
-          return;
-        }
-        currentUser = user;
-        setUserCreated(user);
-      }
-
-      const priceInfo = getCurrentPrice(planKey);
-      const planInfo = STRIPE_PRICES[planKey];
-      
-      logger.dev('💳 Iniciando checkout para:', currentUser.id, {
-        plan: planInfo.nombre,
-        interval: billingInterval,
-        price_id: priceInfo.price_id,
-        planKey: planKey
-      });
-
-      // Obtener token de sesión para autenticar la llamada
-      const { data: { session } } = await supabase.auth.getSession();
-      const accessToken = session?.access_token;
-
-      if (!accessToken) {
-        throw new Error('No hay sesión activa. Por favor, inicia sesión de nuevo.');
-      }
-
-      // Crear sesión de checkout via Edge Function
-      const { checkout_url } = await stripeApi.createCheckoutSession({
-        auth_user_id: currentUser.id,
-        email: currentUser.email || form.email,
-        nombre: form.nombre || currentUser.user_metadata?.nombre,
-        price_id: priceInfo.price_id,
-        plan_nombre: planInfo.nombre,
-        telefono: form.telefono,
-        nombre_negocio: form.nombreNegocio,
-        success_url: `${window.location.origin}/gestor?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${window.location.origin}/registro?cancelled=true`,
-        access_token: accessToken
-      });
-
-      // Redirigir a Stripe Checkout
-      window.location.href = checkout_url;
-
-    } catch (err) {
-      logger.error('Error iniciando checkout:', err);
-      setError('Error al procesar el pago: ' + err.message);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -1084,6 +1036,191 @@ export default function RegisterPage() {
 
   // Paso 1: Elección de método de registro
   if (step === 1) {
+    // 📱 Vista móvil tipo Spotify
+    if (isMobile) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden px-6 py-8 safe-area-top safe-area-bottom">
+          <WaveBackground isPlaying={true} />
+          
+          {/* Contenido principal - centrado */}
+          <div className="w-full max-w-md z-10">
+            <Card className="p-6 rounded-3xl shadow-2xl flex flex-col items-center w-full bg-card/95 dark:bg-[#181c24]/95 backdrop-blur-xl border border-white/5">
+              
+              {/* Logo - siempre visible */}
+              <img 
+                src="/assets/icono-ondeon.png" 
+                alt="Logo Ondeón" 
+                className="h-16 mb-4"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+              
+              {/* Indicador de pasos - siempre visible */}
+              <div className="flex items-center justify-center gap-1.5 mb-4">
+                {[1, 2, 3, 4].map((s) => (
+                  <div
+                    key={s}
+                    className={`h-1.5 rounded-full transition-all ${
+                      s === step ? 'w-6 bg-primary' : 'w-1.5 bg-gray-600'
+                    }`}
+                  />
+                ))}
+              </div>
+              
+              {/* Título - siempre visible */}
+              <h1 className="text-2xl font-bold text-center text-white mb-1">
+                {stepTitles[step]}
+              </h1>
+              <p className="text-center text-gray-400 text-sm mb-4">
+                {stepDescriptions[step]}
+              </p>
+              
+              {/* Banner de trial - siempre visible */}
+              <div className="w-full bg-primary/10 border border-primary/20 rounded-xl p-3 mb-4">
+                <div className="flex items-center gap-3">
+                  <Sparkles className="w-5 h-5 text-primary flex-shrink-0" />
+                  <div>
+                    <span className="text-sm font-medium text-white">7 días de prueba gratis</span>
+                    <p className="text-xs text-gray-400">Sin tarjeta, acceso completo</p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Link a login - siempre visible */}
+              <p className="text-center text-gray-400 text-sm mb-4">
+                ¿Ya tienes una cuenta?{' '}
+                <Link to="/login" onClick={() => setMobileView('buttons')} className="underline text-primary font-medium">Inicia sesión</Link>
+              </p>
+              
+              {error && (
+                <div className="w-full mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+                  <p className="text-red-400 text-sm text-center">{error}</p>
+                </div>
+              )}
+              
+              <AnimatePresence mode="wait">
+                {mobileView === 'buttons' ? (
+                  <motion.div
+                    key="buttons"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="w-full flex flex-col items-center overflow-hidden"
+                  >
+                    {/* Botones de registro */}
+                    <div className="w-full flex flex-col gap-3">
+                      <Button
+                        onClick={handleGoogleAuth}
+                        disabled={loading}
+                        className="w-full flex items-center justify-center gap-3 h-14 rounded-full border border-white/20 bg-transparent hover:bg-white/10 text-white font-medium text-base transition-all active:scale-[0.98]"
+                        variant="outline"
+                      >
+                        <FcGoogle size={24} /> 
+                        <span>Continuar con Google</span>
+                      </Button>
+                      
+                      <Button
+                        onClick={handleAppleAuth}
+                        disabled={loading}
+                        className="w-full flex items-center justify-center gap-3 h-14 rounded-full bg-white text-black hover:bg-white/90 font-medium text-base transition-all active:scale-[0.98]"
+                      >
+                        <FaApple size={24} /> 
+                        <span>Continuar con Apple</span>
+                      </Button>
+                      
+                      {/* Separador */}
+                      <div className="w-full flex items-center gap-4 my-2">
+                        <div className="flex-1 h-px bg-white/10" />
+                        <span className="text-xs text-gray-500 uppercase tracking-wider">o</span>
+                        <div className="flex-1 h-px bg-white/10" />
+                      </div>
+                      
+                      <Button
+                        onClick={() => { setError(''); setMobileView('email-form'); }}
+                        disabled={loading}
+                        className="w-full flex items-center justify-center gap-3 h-14 rounded-full bg-gradient-to-r from-[#A2D9F7] to-[#7BC4E0] text-[#0a0e14] font-semibold text-base transition-all active:scale-[0.98] shadow-lg shadow-[#A2D9F7]/20"
+                      >
+                        <Mail size={20} />
+                        <span>Continuar con correo</span>
+                      </Button>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="email-form"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="w-full flex flex-col items-center overflow-hidden"
+                  >
+                    {/* Formulario de email */}
+                    <form className="w-full flex flex-col gap-4" onSubmit={handleEmailRegister}>
+                      <div className="space-y-2">
+                        <Label className="text-gray-300 text-sm font-medium">Correo electrónico</Label>
+                        <Input 
+                          name="email" 
+                          type="email" 
+                          value={form.email} 
+                          onChange={handleChange} 
+                          required 
+                          disabled={loading}
+                          placeholder="tu@email.com"
+                          autoComplete="username"
+                          className="h-14 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500 text-base"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label className="text-gray-300 text-sm font-medium">Contraseña</Label>
+                        <Input 
+                          name="password" 
+                          type="password" 
+                          value={form.password} 
+                          onChange={handleChange} 
+                          required 
+                          disabled={loading}
+                          placeholder="Mínimo 6 caracteres"
+                          minLength={6}
+                          autoComplete="new-password"
+                          className="h-14 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500 text-base"
+                        />
+                        <p className="text-xs text-gray-500">
+                          La contraseña debe tener al menos 6 caracteres
+                        </p>
+                      </div>
+                      
+                      <Button 
+                        className="w-full h-14 mt-2 bg-gradient-to-r from-[#A2D9F7] to-[#7BC4E0] text-[#0a0e14] font-semibold text-base rounded-full shadow-lg shadow-[#A2D9F7]/20 hover:shadow-[#A2D9F7]/40 transition-all active:scale-[0.98]" 
+                        type="submit"
+                        disabled={loading}
+                      >
+                        {loading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Creando cuenta...
+                          </>
+                        ) : 'Continuar'}
+                      </Button>
+                      
+                      <button
+                        type="button"
+                        onClick={() => { setError(''); setMobileView('buttons'); }}
+                        className="text-sm text-gray-400 hover:text-white transition-colors mt-2"
+                      >
+                        ← Volver
+                      </button>
+                    </form>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </Card>
+          </div>
+        </div>
+      );
+    }
+
+    // 🖥️ Vista desktop (original)
     return (
       <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-4 py-8 safe-area-top safe-area-bottom">
         <WaveBackground isPlaying={true} />
@@ -1107,11 +1244,11 @@ export default function RegisterPage() {
             {/* Banner de trial */}
             <div className="w-full bg-primary/10 border border-primary/20 rounded-lg p-3 mb-4">
               <div className="flex items-center gap-2">
-                <CreditCard className="w-5 h-5 text-primary" />
-                <span className="text-sm font-medium">7 días gratis</span>
+                <Sparkles className="w-5 h-5 text-primary" />
+                <span className="text-sm font-medium">7 días de prueba gratis</span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                No se te cobrará hasta que termine tu prueba
+                Sin tarjeta, acceso completo
               </p>
             </div>
             
@@ -1154,6 +1291,108 @@ export default function RegisterPage() {
 
   // Paso 2: Formulario de email y contraseña
   if (step === 2) {
+    // 📱 Vista móvil
+    if (isMobile) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden px-6 py-8 safe-area-top safe-area-bottom">
+          <WaveBackground isPlaying={true} />
+          
+          <div className="w-full max-w-md z-10">
+            <Card className="p-6 rounded-3xl shadow-2xl flex flex-col items-center w-full bg-card/95 dark:bg-[#181c24]/95 backdrop-blur-xl border border-white/5">
+              {/* Logo */}
+              <img 
+                src="/assets/icono-ondeon.png" 
+                alt="Logo Ondeón" 
+                className="h-14 mb-3"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+              
+              {/* Header con botón de volver */}
+              <div className="w-full flex items-center justify-center mb-2">
+                <button
+                  onClick={() => setStep(1)}
+                  className="absolute left-6 p-2 text-gray-400 hover:text-white transition-colors"
+                  disabled={loading}
+                >
+                  <ArrowLeft size={24} />
+                </button>
+                <h2 className="text-xl font-bold text-center text-white">
+                  {stepTitles[step]}
+                </h2>
+              </div>
+              
+              {/* Indicador de pasos */}
+              <div className="flex items-center justify-center gap-1.5 mb-6">
+                {[1, 2, 3, 4].map((s) => (
+                  <div
+                    key={s}
+                    className={`h-1.5 rounded-full transition-all ${
+                      s === step ? 'w-6 bg-primary' : s < step ? 'w-1.5 bg-green-500' : 'w-1.5 bg-gray-600'
+                    }`}
+                  />
+                ))}
+              </div>
+
+              {error && (
+                <div className="w-full mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+                  <p className="text-red-400 text-sm text-center">{error}</p>
+                </div>
+              )}
+
+              <form className="w-full flex flex-col gap-4" onSubmit={handleEmailRegister}>
+                <div className="space-y-2">
+                  <Label className="text-gray-300 text-sm font-medium">Correo electrónico</Label>
+                  <Input 
+                    name="email" 
+                    type="email" 
+                    value={form.email} 
+                    onChange={handleChange} 
+                    required 
+                    disabled={loading}
+                    placeholder="tu@email.com"
+                    autoComplete="username"
+                    className="h-14 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500 text-base"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-gray-300 text-sm font-medium">Contraseña</Label>
+                  <Input 
+                    name="password" 
+                    type="password" 
+                    value={form.password} 
+                    onChange={handleChange} 
+                    required 
+                    disabled={loading}
+                    placeholder="Mínimo 6 caracteres"
+                    minLength={6}
+                    autoComplete="new-password"
+                    className="h-14 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500 text-base"
+                  />
+                  <p className="text-xs text-gray-500">
+                    La contraseña debe tener al menos 6 caracteres
+                  </p>
+                </div>
+                
+                <Button 
+                  className="w-full h-14 mt-2 bg-gradient-to-r from-[#A2D9F7] to-[#7BC4E0] text-[#0a0e14] font-semibold text-base rounded-full shadow-lg shadow-[#A2D9F7]/20 transition-all active:scale-[0.98]" 
+                  type="submit"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Creando cuenta...
+                    </>
+                  ) : 'Continuar'}
+                </Button>
+              </form>
+            </Card>
+          </div>
+        </div>
+      );
+    }
+
+    // 🖥️ Vista desktop (original)
     return (
       <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-4 py-8">
         <WaveBackground isPlaying={true} />
@@ -1247,6 +1486,115 @@ export default function RegisterPage() {
 
   // Paso 3: Verificación de email
   if (step === 3) {
+    // 📱 Vista móvil
+    if (isMobile) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden px-6 py-8 safe-area-top safe-area-bottom">
+          <WaveBackground isPlaying={true} />
+          
+          <div className="w-full max-w-md z-10">
+            <Card className="p-6 rounded-3xl shadow-2xl flex flex-col items-center w-full bg-card/95 dark:bg-[#181c24]/95 backdrop-blur-xl border border-white/5">
+              {/* Logo */}
+              <img 
+                src="/assets/icono-ondeon.png" 
+                alt="Logo Ondeón" 
+                className="h-14 mb-3"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+              
+              {/* Header con botón de volver */}
+              <div className="w-full flex items-center justify-center relative mb-2">
+                <button
+                  onClick={() => setStep(2)}
+                  className="absolute left-0 p-2 text-gray-400 hover:text-white transition-colors"
+                >
+                  <ArrowLeft size={24} />
+                </button>
+                <h2 className="text-xl font-bold text-center text-white">
+                  {stepTitles[step]}
+                </h2>
+              </div>
+              
+              {/* Indicador de pasos */}
+              <div className="flex items-center justify-center gap-1.5 mb-4">
+                {[1, 2, 3, 4].map((s) => (
+                  <div
+                    key={s}
+                    className={`h-1.5 rounded-full transition-all ${
+                      s === step ? 'w-6 bg-primary' : s < step ? 'w-1.5 bg-green-500' : 'w-1.5 bg-gray-600'
+                    }`}
+                  />
+                ))}
+              </div>
+
+              {/* Icono de email */}
+              <div className="w-14 h-14 rounded-full bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 flex items-center justify-center mb-3 border border-emerald-500/20">
+                <Mail className="w-7 h-7 text-emerald-400" />
+              </div>
+
+              <div className="text-center mb-4 space-y-2">
+                <p className="text-gray-300 text-sm">
+                  Hemos enviado un correo de verificación a:
+                </p>
+                <p className="font-semibold text-white bg-white/5 px-4 py-2 rounded-xl border border-white/10 text-sm">
+                  {form.email}
+                </p>
+                <p className="text-gray-500 text-xs mt-2">
+                  Haz clic en el enlace del correo y luego vuelve aquí.
+                </p>
+              </div>
+
+              {resendSuccess && (
+                <div className="w-full mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                  <p className="text-emerald-400 text-sm text-center">✓ Correo reenviado</p>
+                </div>
+              )}
+
+              {error && (
+                <div className="w-full mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+                  <p className="text-red-400 text-sm text-center">{error}</p>
+                </div>
+              )}
+
+              <div className="w-full space-y-3">
+                <Button 
+                  className="w-full h-14 bg-gradient-to-r from-[#A2D9F7] to-[#7BC4E0] text-[#0a0e14] font-semibold text-base rounded-full shadow-lg shadow-[#A2D9F7]/20 transition-all active:scale-[0.98]" 
+                  onClick={handleCheckVerification}
+                  disabled={checkingVerification}
+                >
+                  {checkingVerification ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Verificando...
+                    </>
+                  ) : 'Ya verifiqué mi correo'}
+                </Button>
+
+                <button
+                  onClick={handleResendVerification}
+                  disabled={resendingEmail}
+                  className="w-full flex items-center justify-center gap-2 py-3 text-sm text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-50"
+                >
+                  {resendingEmail ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Reenviando...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4" />
+                      Reenviar correo
+                    </>
+                  )}
+                </button>
+              </div>
+            </Card>
+          </div>
+        </div>
+      );
+    }
+
+    // 🖥️ Vista desktop (original)
     return (
       <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-4 py-8">
         <WaveBackground isPlaying={true} />
@@ -1349,6 +1697,165 @@ export default function RegisterPage() {
 
   // Paso 4: Completar perfil
   if (step === 4) {
+    // 📱 Vista móvil
+    if (isMobile) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden px-6 py-8 safe-area-top safe-area-bottom">
+          <WaveBackground isPlaying={true} />
+          
+          <div className="w-full max-w-md z-10">
+            <Card className="p-6 rounded-3xl shadow-2xl flex flex-col items-center w-full bg-card/95 dark:bg-[#181c24]/95 backdrop-blur-xl border border-white/5">
+              {/* Logo */}
+              <img 
+                src="/assets/icono-ondeon.png" 
+                alt="Logo Ondeón" 
+                className="h-14 mb-3"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+              
+              {/* Header con botón de volver */}
+              <div className="w-full flex items-center justify-center relative mb-2">
+                <button
+                  onClick={() => setStep(1)}
+                  className="absolute left-0 p-2 text-gray-400 hover:text-white transition-colors"
+                  disabled={loading}
+                >
+                  <ArrowLeft size={24} />
+                </button>
+                <h2 className="text-xl font-bold text-center text-white">
+                  {stepTitles[step]}
+                </h2>
+              </div>
+              
+              {/* Indicador de pasos */}
+              <div className="flex items-center justify-center gap-1.5 mb-4">
+                {[1, 2, 3, 4].map((s) => (
+                  <div
+                    key={s}
+                    className={`h-1.5 rounded-full transition-all ${
+                      s === step ? 'w-6 bg-primary' : s < step ? 'w-1.5 bg-green-500' : 'w-1.5 bg-gray-600'
+                    }`}
+                  />
+                ))}
+              </div>
+
+              {error && (
+                <div className="w-full mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+                  <p className="text-red-400 text-sm text-center">{error}</p>
+                </div>
+              )}
+
+              <form className="w-full flex flex-col gap-4" onSubmit={handleCompleteProfile}>
+                {/* Nombre */}
+                {isOAuthUser ? (
+                  <div className="space-y-2">
+                    <Label className="text-gray-400 text-sm font-medium">Nombre</Label>
+                    <div className="flex items-center gap-3 px-4 py-3 bg-white/5 rounded-xl border border-white/10">
+                      <User className="w-4 h-4 text-gray-500" />
+                      <span className="text-white flex-1 text-sm">{form.nombre || 'Usuario'}</span>
+                      <span className="text-xs text-emerald-400 font-medium">✓</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label className="text-gray-300 text-sm font-medium">Nombre completo *</Label>
+                    <Input
+                      name="nombre"
+                      type="text"
+                      value={form.nombre}
+                      onChange={handleChange}
+                      required
+                      placeholder="Tu nombre"
+                      autoComplete="name"
+                      className="h-14 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500 text-base"
+                    />
+                  </div>
+                )}
+
+                {/* Establecimiento */}
+                <div className="space-y-2">
+                  <Label className="text-gray-300 text-sm font-medium">Establecimiento *</Label>
+                  <Input
+                    name="establecimiento"
+                    type="text"
+                    value={form.establecimiento}
+                    onChange={handleChange}
+                    required
+                    placeholder="Nombre de tu negocio"
+                    className="h-14 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500 text-base"
+                  />
+                </div>
+
+                {/* Sector */}
+                <div className="space-y-2">
+                  <Label className="text-gray-300 text-sm font-medium">Sector *</Label>
+                  <select
+                    name="sectorId"
+                    value={form.sectorId}
+                    onChange={handleChange}
+                    className="w-full h-14 px-4 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all text-base"
+                    required
+                  >
+                    <option value="" className="bg-[#1a1e26]">Selecciona un sector...</option>
+                    {sectores.map((sector) => (
+                      <option key={sector.id} value={sector.id} className="bg-[#1a1e26]">
+                        {sector.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Sector personalizado */}
+                {form.sectorId === 'otro' && (
+                  <div className="space-y-2">
+                    <Label className="text-gray-300 text-sm font-medium">Indica tu sector *</Label>
+                    <Input
+                      name="sectorOtro"
+                      type="text"
+                      value={form.sectorOtro}
+                      onChange={handleChange}
+                      required
+                      placeholder="Ej: Gimnasio, Veterinaria..."
+                      className="h-14 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500 text-base"
+                    />
+                  </div>
+                )}
+
+                {/* Teléfono */}
+                <div className="space-y-2">
+                  <Label className="text-gray-300 text-sm font-medium">Teléfono *</Label>
+                  <Input
+                    name="telefono"
+                    type="tel"
+                    value={form.telefono}
+                    onChange={handleChange}
+                    required
+                    placeholder="600 000 000"
+                    autoComplete="tel"
+                    className="h-14 bg-white/5 border-white/10 rounded-xl focus:border-primary/50 focus:ring-primary/20 placeholder:text-gray-500 text-base"
+                  />
+                </div>
+
+                <Button 
+                  className="w-full h-14 bg-gradient-to-r from-[#A2D9F7] to-[#7BC4E0] text-[#0a0e14] font-semibold text-base rounded-full shadow-lg shadow-[#A2D9F7]/20 transition-all active:scale-[0.98]" 
+                  type="submit"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Guardando...
+                    </>
+                  ) : 'Continuar'}
+                </Button>
+              </form>
+            </Card>
+          </div>
+        </div>
+      );
+    }
+
+    // 🖥️ Vista desktop (original)
     return (
       <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-4 py-8">
         <WaveBackground isPlaying={true} />
@@ -1492,294 +1999,6 @@ export default function RegisterPage() {
               ← Empezar de nuevo
             </button>
           </Card>
-        </div>
-      </div>
-    );
-  }
-
-  // Paso 5: Selección de Plan y Checkout
-  if (step === 5) {
-    const priceInfo = getCurrentPrice();
-    const planInfo = STRIPE_PRICES[selectedPlan];
-    
-    // Color accent igual que la web
-    const accentColor = '#A2D9F7';
-    
-    // Características por plan
-    const planFeatures = {
-      basico: [
-        '28 Canales de música tematizados',
-        'Licencia Comercial',
-        'Certificado libre de regalías',
-        'Indicativos de Voz para tu Marca',
-        'Soporte Técnico',
-        'Actualización Mensual de canales',
-        '1 zona de reproducción',
-        'Sin permanencia'
-      ],
-      pro: [
-        'Todo lo incluido en el plan BÁSICO',
-        'Audio Marketing',
-        'Indicativos de tu marca',
-        'Campañas publicitarias (Cuñas, Menciones)',
-        'Anuncios inmediatos con IA',
-        'Sin permanencia'
-      ]
-    };
-
-    // Precios para mostrar
-    const displayPrices = {
-      basico: billingInterval === 'anual' 
-        ? STRIPE_PRICES.basico.precioMensualAnual 
-        : STRIPE_PRICES.basico.precioMensual,
-      pro: billingInterval === 'anual' 
-        ? STRIPE_PRICES.pro.precioMensualAnual 
-        : STRIPE_PRICES.pro.precioMensual
-    };
-    
-    // Totales anuales para mostrar
-    const annualTotals = {
-      basico: STRIPE_PRICES.basico.precioAnual,
-      pro: STRIPE_PRICES.pro.precioAnual
-    };
-
-    return (
-      <div className="min-h-screen flex items-center justify-center relative overflow-hidden px-4 py-8">
-        <WaveBackground isPlaying={true} />
-        <div className="w-full max-w-3xl mx-auto z-10">
-          {/* Header persuasivo */}
-          <div className="text-center mb-8">
-            <div 
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-4 border animate-pulse"
-              style={{ 
-                backgroundColor: `${accentColor}15`, 
-                borderColor: `${accentColor}40`,
-                boxShadow: `0 0 20px ${accentColor}20`
-              }}
-            >
-              <Sparkles className="w-4 h-4" style={{ color: accentColor }} />
-              <span className="text-sm font-bold" style={{ color: accentColor }}>
-                <span className="text-white">7 días</span> GRATIS
-              </span>
-              <span className="text-gray-400 text-xs">· Sin compromiso</span>
-            </div>
-            <h2 className="text-2xl md:text-3xl font-bold text-white mb-2 tracking-tight">
-              Prueba Ondeón{' '}
-              <span 
-                className="relative inline-block"
-                style={{ color: accentColor }}
-              >
-                gratis
-                <span 
-                  className="absolute -bottom-1 left-0 w-full h-0.5 rounded-full"
-                  style={{ backgroundColor: accentColor }}
-                />
-              </span>
-              {' '}durante{' '}
-              <span 
-                className="relative inline-block"
-                style={{ color: accentColor }}
-              >
-                7 días
-                <span 
-                  className="absolute -bottom-1 left-0 w-full h-0.5 rounded-full"
-                  style={{ backgroundColor: accentColor }}
-                />
-              </span>
-            </h2>
-            <p className="text-gray-400 text-sm md:text-base">
-              Descubre el sonido perfecto para tu negocio. Cancela cuando quieras.
-            </p>
-          </div>
-
-          {/* Toggle Mensual/Anual */}
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <span className={`text-sm font-medium transition-colors ${billingInterval === 'mensual' ? 'text-white' : 'text-gray-500'}`}>
-              Mensual
-            </span>
-            <button
-              onClick={() => setBillingInterval(billingInterval === 'mensual' ? 'anual' : 'mensual')}
-              className="relative w-12 h-7 rounded-full transition-all duration-300"
-              style={{ backgroundColor: billingInterval === 'anual' ? accentColor : '#374151' }}
-              aria-label="Toggle pricing period"
-            >
-              <div
-                className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-lg transition-all duration-300 ${
-                  billingInterval === 'anual' ? 'left-6' : 'left-1'
-                }`}
-              />
-            </button>
-            <span className={`text-sm font-medium transition-colors ${billingInterval === 'anual' ? 'text-white' : 'text-gray-500'}`}>
-              Anual
-            </span>
-            {billingInterval === 'anual' && (
-              <span 
-                className="px-2 py-0.5 text-xs font-semibold rounded-full border"
-                style={{ 
-                  backgroundColor: `${accentColor}20`, 
-                  color: accentColor,
-                  borderColor: `${accentColor}30`
-                }}
-              >
-                -22%
-              </span>
-            )}
-          </div>
-
-          {/* Plan Cards - 2 columnas compactas */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-            {/* Plan Básico */}
-            <div
-              onClick={() => setSelectedPlan('basico')}
-              className="cursor-pointer relative bg-[#A2D9F7]/5 border border-[#A2D9F7]/10 hover:border-[#A2D9F7]/30 backdrop-blur-sm rounded-xl p-5 transition-all duration-300 hover:-translate-y-1"
-            >
-              <div className="text-lg font-bold text-white mb-1">Ondeón Básico</div>
-              <p className="text-gray-400 text-xs mb-4">Perfecto para comenzar</p>
-              
-              <div className="mb-2">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-3xl font-bold text-white">€{displayPrices.basico}</span>
-                  <span className="text-gray-400 text-sm">/mes</span>
-                </div>
-                {billingInterval === 'anual' && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    <span className="text-gray-400 font-medium">€{annualTotals.basico}/año</span> · facturado anualmente
-                  </p>
-                )}
-              </div>
-              
-              <div className="mb-4">
-                <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
-                  IVA incluido
-                </span>
-              </div>
-              
-              <ul className="space-y-2 mb-5">
-                {planFeatures.basico.slice(0, 5).map((feature, idx) => (
-                  <li key={idx} className="flex items-start gap-2">
-                    <div 
-                      className="flex-shrink-0 w-3.5 h-3.5 rounded-full flex items-center justify-center mt-0.5"
-                      style={{ backgroundColor: `${accentColor}20` }}
-                    >
-                      <Check className="w-2 h-2" style={{ color: accentColor }} strokeWidth={3} />
-                    </div>
-                    <span className="text-gray-300 text-xs leading-relaxed">{feature}</span>
-                  </li>
-                ))}
-              </ul>
-              
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedPlan('basico');
-                  handleStartCheckout('basico'); // Pasar plan explícitamente
-                }}
-                disabled={loading && selectedPlan === 'basico'}
-                className="w-full py-2.5 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-[1.02] active:scale-95 bg-white/5 text-white hover:bg-white/10 border border-white/10"
-              >
-                {loading && selectedPlan === 'basico' ? (
-                  <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-                ) : (
-                  <>Empezar <span className="font-black">7 días GRATIS</span></>
-                )}
-              </button>
-            </div>
-
-            {/* Plan Pro - Destacado */}
-            <div
-              onClick={() => setSelectedPlan('pro')}
-              className="cursor-pointer relative bg-[#A2D9F7]/5 backdrop-blur-sm rounded-xl p-5 transition-all duration-300 hover:-translate-y-1"
-              style={{ borderColor: accentColor, borderWidth: '2px', borderStyle: 'solid', boxShadow: `0 20px 40px -12px ${accentColor}25` }}
-            >
-              {/* Badge Más popular */}
-              <div className="absolute -top-2.5 left-1/2 transform -translate-x-1/2 z-10">
-                <div 
-                  className="px-3 py-1 rounded-full text-xs font-bold shadow-lg"
-                  style={{ backgroundColor: accentColor, color: '#1a1c20' }}
-                >
-                  Más popular
-                </div>
-              </div>
-              
-              <div className="text-lg font-bold text-white mb-1 mt-1">Ondeón Pro</div>
-              <p className="text-gray-400 text-xs mb-4">Para negocios en crecimiento</p>
-              
-              <div className="mb-2">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-3xl font-bold text-white">€{displayPrices.pro}</span>
-                  <span className="text-gray-400 text-sm">/mes</span>
-                </div>
-                {billingInterval === 'anual' && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    <span className="text-gray-400 font-medium">€{annualTotals.pro}/año</span> · facturado anualmente
-                  </p>
-                )}
-              </div>
-              
-              <div className="mb-4">
-                <span className="inline-block px-2 py-0.5 text-xs font-medium rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
-                  IVA incluido
-                </span>
-              </div>
-              
-              <ul className="space-y-2 mb-5">
-                {planFeatures.pro.map((feature, idx) => (
-                  <li key={idx} className="flex items-start gap-2">
-                    <div 
-                      className="flex-shrink-0 w-3.5 h-3.5 rounded-full flex items-center justify-center mt-0.5"
-                      style={{ backgroundColor: `${accentColor}20` }}
-                    >
-                      <Check className="w-2 h-2" style={{ color: accentColor }} strokeWidth={3} />
-                    </div>
-                    <span className="text-gray-300 text-xs leading-relaxed">{feature}</span>
-                  </li>
-                ))}
-              </ul>
-              
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedPlan('pro');
-                  handleStartCheckout('pro'); // Pasar plan explícitamente
-                }}
-                disabled={loading && selectedPlan === 'pro'}
-                className="w-full py-2.5 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-[1.02] active:scale-95 text-[#1a1c20] shadow-lg"
-                style={{ backgroundColor: accentColor }}
-              >
-                {loading && selectedPlan === 'pro' ? (
-                  <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-                ) : (
-                  <>Empezar <span className="font-black">7 días GRATIS</span></>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="text-center">
-            <p className="text-gray-400 text-xs">
-              Todos los planes incluyen certificado libre de regalías y licencia comercial
-            </p>
-            <p className="text-xs text-gray-500 mt-1">
-              Sin permanencia • Cancela cuando quieras
-            </p>
-          </div>
-
-          {error && (
-            <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-center">
-              <p className="text-red-400 text-sm">{error}</p>
-            </div>
-          )}
-          
-          <div className="text-center mt-4">
-            <button
-              onClick={() => setStep(4)}
-              className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
-              disabled={loading}
-            >
-              ← Volver
-            </button>
-          </div>
         </div>
       </div>
     );

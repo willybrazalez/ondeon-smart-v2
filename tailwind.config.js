@@ -80,6 +80,15 @@ module.exports = {
         "marquee": {
           "0%": { transform: "translateX(0%)" },
           "100%": { transform: "translateX(-50%)" }
+        },
+        "float": {
+          "0%, 100%": { transform: "translateY(0px)" },
+          "50%": { transform: "translateY(-10px)" }
+        },
+        "progress": {
+          "0%": { transform: "translateX(-100%)" },
+          "50%": { transform: "translateX(100%)" },
+          "100%": { transform: "translateX(-100%)" }
         }
       },
       animation: {
