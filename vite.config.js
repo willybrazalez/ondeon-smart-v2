@@ -5,12 +5,7 @@ import path from 'path'
 export default defineConfig({
   plugins: [
     react({
-      jsxRuntime: 'automatic',
-      babel: {
-        plugins: [
-          ['@babel/plugin-transform-react-jsx', { runtime: 'automatic' }]
-        ]
-      }
+      jsxRuntime: 'automatic'
     })
   ],
   resolve: {
@@ -35,16 +30,8 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000
   },
   server: {
-    host: true, // 📱 Expone el servidor en la red local para iPhone
+    host: '0.0.0.0',
     port: 5173,
-    allowedHosts: [
-      '.trycloudflare.com', // 🌐 Permitir todos los túneles de Cloudflare
-      '.loca.lt', // 🌐 Permitir todos los túneles de Localtunnel
-      'localhost',
-      '.local'
-    ],
-    watch: {
-      usePolling: true,
-    },
+    strictPort: true,
   },
 }) 

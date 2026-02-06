@@ -162,7 +162,7 @@ const NewAdPage = () => {
   const { toast } = useToast();
   const adTextRef = useRef(null);
 
-  // Guard: Crear anuncios solo para planes básico y pro
+  // Guard: Crear anuncios con IA solo para plan Pro
   if (!canCreateAds) {
     return <SubscriptionGate />;
   }

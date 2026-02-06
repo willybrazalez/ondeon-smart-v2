@@ -1,22 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Radio, Music, Loader2, Play, Volume2 } from 'lucide-react';
+import { Radio, Music, Loader2, Play, Volume2, Heart, RefreshCw } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import logger from '@/lib/logger';
 import SubscriptionGate from '@/components/SubscriptionGate';
+import useChannelsSections from '@/hooks/useChannelsSections';
 
 // ============================================================================
 // ONDEON SMART v2 - CHANNELS PAGE
 // ============================================================================
 // Diseño tipo Spotify con tarjetas compactas y descripción
-// MODO PRUEBA: Datos mock con 10 secciones x 10 canales
+// Sistema de secciones dinámicas con datos reales de BD
 // ============================================================================
 
 // ============================================================================
-// DATOS DE PRUEBA - 10 SECCIONES x 10 CANALES = 100 CANALES
+// DATOS DE PRUEBA - ELIMINADOS - AHORA USA DATOS REALES
 // ============================================================================
-const MOCK_SECTIONS = [
+const MOCK_SECTIONS_BACKUP = [
   {
     title: "Para tu cafetería",
     channels: [
@@ -183,26 +184,109 @@ const channelGradients = {
 };
 
 // Componente de fila horizontal con scroll - Estilo Spotify
-const ChannelRow = ({ title, channels, selectedChannel, onChannelSelect, isManualPlaybackActive, showViewAll = false }) => {
+const ChannelRow = ({ title, channels, selectedChannel, onChannelSelect, isManualPlaybackActive }) => {
   const scrollRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(true);
+
+  // Verificar si se puede hacer scroll en cada dirección
+  const checkScrollButtons = () => {
+    if (scrollRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
+      setCanScrollLeft(scrollLeft > 0);
+      setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 10);
+    }
+  };
+
+  // Scroll horizontal con las flechas
+  const scrollHorizontal = (direction) => {
+    if (scrollRef.current) {
+      const scrollAmount = 300;
+      scrollRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  // Manejar eventos de wheel con event listener nativo (no pasivo)
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    const handleWheel = (e) => {
+      const absX = Math.abs(e.deltaX);
+      const absY = Math.abs(e.deltaY);
+      
+      // Si hay cualquier movimiento horizontal (trackpad Mac), dejar scroll horizontal nativo
+      if (absX > 2) {
+        return;
+      }
+      
+      // Solo interceptar scroll puramente vertical (rueda de ratón normal)
+      if (absY > 0 && absX <= 2) {
+        const scrollContainer = document.querySelector('[data-scroll-container]');
+        if (scrollContainer) {
+          scrollContainer.scrollTop += e.deltaY;
+          e.preventDefault();
+        }
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    container.addEventListener('scroll', checkScrollButtons);
+    checkScrollButtons();
+
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('scroll', checkScrollButtons);
+    };
+  }, []);
 
   if (!channels || channels.length === 0) return null;
 
   return (
-    <div className="mb-8">
+    <div className="mb-8 relative group">
       {/* Header de la sección */}
       <div className="flex items-center justify-between mb-4 px-4 md:px-6">
         <h2 className="text-base md:text-lg font-semibold text-white/80">{title}</h2>
-        {showViewAll && (
-          <span className="text-xs text-[#A2D9F7]/70 font-medium cursor-pointer hover:text-[#A2D9F7]">Ver todo</span>
-        )}
       </div>
 
-      {/* Contenedor con scroll horizontal */}
+      {/* Flecha izquierda */}
+      {canScrollLeft && (
+        <button
+          onClick={() => scrollHorizontal('left')}
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-black/70 hover:bg-black/90 flex items-center justify-center shadow-lg transition-all opacity-0 group-hover:opacity-100 ml-1"
+          aria-label="Anterior"
+        >
+          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+      )}
+
+      {/* Flecha derecha */}
+      {canScrollRight && (
+        <button
+          onClick={() => scrollHorizontal('right')}
+          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-black/70 hover:bg-black/90 flex items-center justify-center shadow-lg transition-all opacity-0 group-hover:opacity-100 mr-1"
+          aria-label="Siguiente"
+        >
+          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
+
+      {/* Contenedor con scroll horizontal táctil */}
       <div 
         ref={scrollRef}
-        className="flex gap-3 md:gap-4 overflow-x-auto scrollbar-hide px-4 md:px-6 pb-2"
-        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        className="flex gap-3 md:gap-4 overflow-x-auto scrollbar-hide px-4 md:px-6 pb-2 snap-x snap-mandatory touch-pan-x"
+        style={{ 
+          scrollbarWidth: 'none', 
+          msOverflowStyle: 'none',
+          WebkitOverflowScrolling: 'touch'
+        }}
       >
         {channels.map((channel, index) => (
           <ChannelCard
@@ -219,9 +303,12 @@ const ChannelRow = ({ title, channels, selectedChannel, onChannelSelect, isManua
   );
 };
 
-// Componente de tarjeta de canal - Estilo vertical alargado
+// Componente de tarjeta de canal - Estilo vertical alargado con botón de favoritos
 const ChannelCard = ({ channel, index, isSelected, onSelect, isManualPlaybackActive }) => {
   const [isChanging, setIsChanging] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
+  const { toast } = useToast();
 
   const getChannelType = (name) => {
     const n = name?.toLowerCase() || '';
@@ -261,12 +348,61 @@ const ChannelCard = ({ channel, index, isSelected, onSelect, isManualPlaybackAct
     setIsChanging(false);
   };
 
+  const handleToggleFavorite = async (e) => {
+    e.stopPropagation(); // Evitar que se dispare el click del canal
+    
+    if (isTogglingFavorite) return;
+    
+    setIsTogglingFavorite(true);
+    
+    try {
+      const { sectionsApi } = await import('@/lib/api');
+      const result = await sectionsApi.toggleFavorite(channel.id);
+      
+      if (result.success) {
+        setIsFavorite(result.is_favorite);
+        
+        toast({
+          title: result.is_favorite ? 'Añadido a favoritos' : 'Eliminado de favoritos',
+          description: `${channel.nombre || channel.name}`,
+          className: "bg-[#0d1117] text-white border border-[#A2D9F7]/30",
+        });
+      }
+    } catch (error) {
+      logger.error('Error al toggle favorito:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar favorito",
+        variant: "destructive",
+      });
+    } finally {
+      setIsTogglingFavorite(false);
+    }
+  };
+
+  // Verificar estado de favorito al montar
+  useEffect(() => {
+    const checkFavorite = async () => {
+      try {
+        const { sectionsApi } = await import('@/lib/api');
+        const isFav = await sectionsApi.checkIsFavorite(channel.id);
+        setIsFavorite(isFav);
+      } catch (error) {
+        logger.dev('Error verificando favorito:', error);
+      }
+    };
+    
+    if (channel.id) {
+      checkFavorite();
+    }
+  }, [channel.id]);
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ delay: index * 0.03, duration: 0.2 }}
-      className={`flex-shrink-0 w-[150px] md:w-[190px] lg:w-[210px] ${isManualPlaybackActive ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer group'}`}
+      className={`flex-shrink-0 w-[150px] md:w-[190px] lg:w-[210px] snap-start ${isManualPlaybackActive ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer group'}`}
       onClick={handleClick}
     >
       {/* Imagen - Proporción 4:5 con bordes rectos */}
@@ -292,6 +428,27 @@ const ChannelCard = ({ channel, index, isSelected, onSelect, isManualPlaybackAct
 
         {/* Overlay hover */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-200" />
+
+        {/* Botón de favorito - Top right */}
+        <button
+          onClick={handleToggleFavorite}
+          disabled={isTogglingFavorite}
+          className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 backdrop-blur-sm rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-all duration-200 disabled:opacity-50 z-10"
+          title={isFavorite ? 'Quitar de favoritos' : 'Añadir a favoritos'}
+        >
+          {isTogglingFavorite ? (
+            <Loader2 size={14} className="text-white animate-spin" />
+          ) : (
+            <Heart 
+              size={14} 
+              className={`${
+                isFavorite 
+                  ? 'text-red-400 fill-red-400' 
+                  : 'text-white'
+              } transition-colors`}
+            />
+          )}
+        </button>
 
         {/* Indicador de reproducción */}
         {isSelected && !isManualPlaybackActive && (
@@ -337,6 +494,15 @@ const ChannelsPage = ({ setCurrentChannel, currentChannel, isPlaying, togglePlay
     canAccessChannelsPage
   } = useAuth();
 
+  // Hook para cargar secciones dinámicas
+  const {
+    sectionsWithChannels,
+    loading,
+    error,
+    refreshing,
+    refresh
+  } = useChannelsSections();
+
   // Guard: Verificar acceso a canales (solo trial, basico, pro)
   if (!canAccessChannelsPage) {
     logger.dev('🔒 Usuario FREE sin acceso a página de canales');
@@ -344,16 +510,13 @@ const ChannelsPage = ({ setCurrentChannel, currentChannel, isPlaying, togglePlay
   }
 
   // =========================================================================
-  // MODO PRUEBA: Usar datos mock en lugar de datos reales
-  // Para volver a producción, descomentar el código original abajo
+  // SISTEMA REAL DE SECCIONES - Datos desde BD
   // =========================================================================
-  const USE_MOCK_DATA = true; // Cambiar a false para usar datos reales
-
-  useEffect(() => {
-    if (USE_MOCK_DATA && !selectedVisualChannel) {
-      setSelectedVisualChannel(MOCK_SECTIONS[0].channels[0].id);
-    }
-  }, []);
+  const USE_MOCK_DATA = false; // Sistema real activado
+  
+  // Fallback a datos mock solo si hay error
+  const useFallbackData = error && MOCK_SECTIONS_BACKUP.length > 0;
+  const sectionsToDisplay = useFallbackData ? MOCK_SECTIONS_BACKUP : sectionsWithChannels;
 
   useEffect(() => {
     if (currentChannel?.id) {
@@ -413,11 +576,24 @@ const ChannelsPage = ({ setCurrentChannel, currentChannel, isPlaying, togglePlay
       {/* Header principal - Solo visible en desktop */}
       <div className="hidden md:block px-6 mb-10 pt-6">
         <motion.h1 
-          className="text-2xl lg:text-3xl font-bold text-white/90 mb-1"
+          className="text-2xl lg:text-3xl font-bold text-white/90 mb-1 flex items-center gap-3"
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
         >
           Canales de música
+          
+          {/* Botón de refresh */}
+          <button
+            onClick={refresh}
+            disabled={refreshing}
+            className="p-2 rounded-full hover:bg-white/5 transition-colors disabled:opacity-50"
+            title="Actualizar secciones"
+          >
+            <RefreshCw 
+              size={20} 
+              className={`text-white/40 ${refreshing ? 'animate-spin' : ''}`} 
+            />
+          </button>
         </motion.h1>
         <motion.p 
           className="text-sm text-white/40"
@@ -429,24 +605,77 @@ const ChannelsPage = ({ setCurrentChannel, currentChannel, isPlaying, togglePlay
             ? `Para ${userData.establecimiento}`
             : 'Selecciona tu ambiente musical'
           }
+          {useFallbackData && (
+            <span className="ml-2 text-yellow-500/60">
+              (Modo offline - datos de respaldo)
+            </span>
+          )}
         </motion.p>
       </div>
       
       {/* Espaciado en mobile */}
       <div className="md:hidden h-6" />
 
-      {/* MODO PRUEBA: 10 secciones x 10 canales con imágenes de Unsplash */}
-      {MOCK_SECTIONS.map((section, idx) => (
-        <ChannelRow
-          key={section.title}
-          title={section.title}
-          channels={section.channels}
-          selectedChannel={selectedVisualChannel}
-          onChannelSelect={handleChannelChange}
-          isManualPlaybackActive={isManualPlaybackActive}
-          showViewAll
-        />
-      ))}
+      {/* Loading state */}
+      {loading && sectionsToDisplay.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20">
+          <Loader2 size={40} className="text-[#A2D9F7] animate-spin mb-4" />
+          <p className="text-white/60 text-sm">Cargando canales...</p>
+        </div>
+      )}
+
+      {/* Error state (con fallback a datos mock) */}
+      {error && !useFallbackData && (
+        <div className="flex flex-col items-center justify-center py-20 px-6">
+          <div className="text-center max-w-md">
+            <p className="text-red-400/80 text-sm mb-4">{error}</p>
+            <button
+              onClick={refresh}
+              className="px-4 py-2 bg-[#A2D9F7]/10 hover:bg-[#A2D9F7]/20 rounded-lg text-[#A2D9F7] text-sm transition-colors"
+            >
+              Reintentar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Secciones dinámicas desde BD */}
+      {!loading && sectionsToDisplay.length > 0 && sectionsToDisplay.map((section, idx) => {
+        // Filtrar sección de favoritos si está vacía
+        if (section.tipo === 'favoritos' && (!section.channels || section.channels.length === 0)) {
+          return null;
+        }
+
+        return (
+          <ChannelRow
+            key={section.id || section.slug || section.title || idx}
+            title={section.titulo || section.title}
+            description={section.descripcion}
+            channels={section.channels || []}
+            selectedChannel={selectedVisualChannel}
+            onChannelSelect={handleChannelChange}
+            isManualPlaybackActive={isManualPlaybackActive}
+            sectionType={section.tipo}
+            showViewAll={false}
+          />
+        );
+      })}
+
+      {/* Estado vacío */}
+      {!loading && !error && sectionsToDisplay.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 px-6">
+          <Music size={48} className="text-white/20 mb-4" />
+          <p className="text-white/60 text-sm text-center">
+            No hay canales disponibles en este momento
+          </p>
+          <button
+            onClick={refresh}
+            className="mt-4 px-4 py-2 bg-[#A2D9F7]/10 hover:bg-[#A2D9F7]/20 rounded-lg text-[#A2D9F7] text-sm transition-colors"
+          >
+            Actualizar
+          </button>
+        </div>
+      )}
     </div>
   );
 };

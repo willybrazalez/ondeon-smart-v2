@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   CreditCard, 
   Calendar, 
@@ -7,7 +8,8 @@ import {
   Clock, 
   AlertTriangle,
   XCircle,
-  Loader2
+  Loader2,
+  Crown
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,6 +23,7 @@ import logger from '@/lib/logger';
  * Muestra estado, próxima factura y botón para gestionar en Stripe Portal
  */
 const SubscriptionPanel = ({ compact = false }) => {
+  const navigate = useNavigate();
   const { user, isLegacyUser } = useAuth();
   const { 
     subscription, 
@@ -137,13 +140,14 @@ const SubscriptionPanel = ({ compact = false }) => {
           <h3 className="font-semibold">Tu Suscripción</h3>
         </div>
         <p className="text-muted-foreground text-sm mb-4">
-          No tienes una suscripción activa.
+          No tienes una suscripción activa. Elige un plan para acceder a todas las funcionalidades.
         </p>
         <Button 
           className="w-full"
-          onClick={() => window.open('https://ondeon.es/registro', '_blank')}
+          onClick={() => navigate('/gestor?modal=planes')}
         >
-          Suscribirse
+          <Crown className="w-4 h-4 mr-2" />
+          Ver planes
         </Button>
       </Card>
     );

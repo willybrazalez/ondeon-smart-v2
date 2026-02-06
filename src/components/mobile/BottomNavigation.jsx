@@ -50,8 +50,12 @@ const BottomNavigation = ({ className = '' }) => {
 
   return (
       <nav 
-        className={`fixed left-0 right-0 bottom-0 z-50 bg-[#0d1117] border-t border-white/[0.06] ${className}`}
-        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        className={`fixed left-0 right-0 bottom-0 z-50 border-t border-white/10 ${className}`}
+        style={{ 
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          backgroundColor: '#0a0e14',
+          boxShadow: '0 -4px 20px rgba(0,0,0,0.8)'
+        }}
       >
       <div className="flex items-center justify-around h-[58px] max-w-md mx-auto px-1">
         {navItems.map((item) => {

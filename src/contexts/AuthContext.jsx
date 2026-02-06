@@ -698,7 +698,91 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        // Obtener datos actualizados de la tabla usuarios
+        // 🔑 PRIMERO: Verificar si hay suscripción activa de Stripe
+        const { data: subscriptionData, error: subError } = await supabase
+          .from('suscripciones')
+          .select('estado, plan_nombre, fecha_fin_trial')
+          .eq('usuario_id', userData.id)
+          .in('estado', ['active', 'trialing'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        // Si hay suscripción activa, usarla para determinar el plan
+        if (subscriptionData && !subError) {
+          const subEstado = subscriptionData.estado
+          const subPlanNombre = (subscriptionData.plan_nombre || '').toLowerCase()
+          
+          // Determinar planTipo basado en el nombre del plan de Stripe
+          let currentPlanTipo = 'basico' // default
+          if (subPlanNombre.includes('pro')) {
+            currentPlanTipo = 'pro'
+          } else if (subPlanNombre.includes('básico') || subPlanNombre.includes('basico') || subPlanNombre.includes('basic')) {
+            currentPlanTipo = 'basico'
+          }
+
+          // Si está en trialing de Stripe, calcular días restantes
+          let daysLeft = 0
+          let trialActive = false
+          
+          if (subEstado === 'trialing' && subscriptionData.fecha_fin_trial) {
+            const trialEndDate = new Date(subscriptionData.fecha_fin_trial)
+            const now = new Date()
+            const diffTime = trialEndDate - now
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+            daysLeft = Math.max(0, diffDays)
+            trialActive = diffDays > 0
+          }
+
+          // Si está activa (no trialing), tiene acceso completo según su plan
+          const isActive = subEstado === 'active'
+          const isPro = currentPlanTipo === 'pro'
+          const isBasico = currentPlanTipo === 'basico'
+
+          setPlanTipo(currentPlanTipo)
+          setIsTrialActive(trialActive)
+          setDaysLeftInTrial(daysLeft)
+
+          // Acceso a contenidos: Suscripción activa con plan pro O trialing
+          const hasContentAccess = (isActive && isPro) || trialActive
+          setCanAccessContents(hasContentAccess)
+
+          // Seleccionar canales: Suscripción activa (básico o pro) O trialing
+          const canSelectCh = isActive || trialActive
+          setCanSelectChannels(canSelectCh)
+
+          // Acceder a página de canales: Suscripción activa (básico o pro) O trialing
+          const canAccessCh = isActive || trialActive
+          setCanAccessChannelsPage(canAccessCh)
+
+          // Crear contenidos: Solo plan pro activo
+          const canCreateCont = isActive && isPro
+          setCanCreateContent(canCreateCont)
+
+          // Crear anuncios con IA: Solo plan pro activo
+          const canCreateAd = isActive && isPro
+          setCanCreateAds(canCreateAd)
+
+          // NO mostrar banner de trial si tiene suscripción activa
+          const showBanner = trialActive // Solo si está en trialing de Stripe
+          setShouldShowTrialBanner(showBanner)
+
+          logger.dev('✅ Estado de acceso calculado (con suscripción Stripe):', {
+            subEstado,
+            subPlanNombre,
+            planTipo: currentPlanTipo,
+            trialActive,
+            daysLeft,
+            canAccessContents: hasContentAccess,
+            canSelectChannels: canSelectCh,
+            canCreateAds: canCreateAd,
+            shouldShowTrialBanner: showBanner
+          })
+
+          return // Ya procesamos con la suscripción de Stripe
+        }
+
+        // 🔑 FALLBACK: Si no hay suscripción activa, usar el trial de la tabla usuarios
         const { data: userInfo, error: userError } = await supabase
           .from('usuarios')
           .select('trial_start_date, plan_tipo')
@@ -707,12 +791,9 @@ export const AuthProvider = ({ children }) => {
 
         if (userError || !userInfo) {
           logger.warn('⚠️ No se pudo obtener info de trial del usuario')
-          // 🔑 Error de red/servidor - NO asumir que el trial expiró
-          // Mantener valores actuales, no cambiar a 'free'
           setIsTrialActive(false)
           setCanAccessContents(false)
           setDaysLeftInTrial(0)
-          // NO cambiar planTipo a 'free' en caso de error
           return
         }
 
@@ -720,7 +801,7 @@ export const AuthProvider = ({ children }) => {
         const currentPlanTipo = userInfo.plan_tipo || 'trial'
         setPlanTipo(currentPlanTipo)
 
-        // Calcular días restantes de trial
+        // Calcular días restantes de trial de la app
         let daysLeft = 0
         let trialActive = false
         
@@ -739,11 +820,10 @@ export const AuthProvider = ({ children }) => {
         setIsTrialActive(trialActive)
         setDaysLeftInTrial(daysLeft)
 
-        // Calcular accesos granulares según plan
+        // Calcular accesos granulares según plan (fallback sin suscripción)
         const isPro = currentPlanTipo === 'pro'
         const isBasico = currentPlanTipo === 'basico'
         const isFree = currentPlanTipo === 'free'
-        const isTrial = currentPlanTipo === 'trial'
 
         // Acceso a contenidos: Trial activo O plan pro
         const hasContentAccess = trialActive || isPro
@@ -761,22 +841,20 @@ export const AuthProvider = ({ children }) => {
         const canCreateCont = isPro
         setCanCreateContent(canCreateCont)
 
-        // Crear anuncios: Plan básico o pro (NO trial ni free)
-        const canCreateAd = isBasico || isPro
+        // Crear anuncios con IA: Solo plan pro
+        const canCreateAd = isPro
         setCanCreateAds(canCreateAd)
 
         // Mostrar banner de trial: Si está en trial O es free
         const showBanner = trialActive || isFree
         setShouldShowTrialBanner(showBanner)
 
-        logger.dev('✅ Estado de acceso calculado:', {
+        logger.dev('✅ Estado de acceso calculado (sin suscripción Stripe):', {
           trialActive,
           daysLeft,
           planTipo: currentPlanTipo,
           canAccessContents: hasContentAccess,
           canSelectChannels: canSelectCh,
-          canAccessChannelsPage: canAccessCh,
-          canCreateContent: canCreateCont,
           canCreateAds: canCreateAd,
           shouldShowTrialBanner: showBanner
         })
@@ -1126,6 +1204,10 @@ export const AuthProvider = ({ children }) => {
     userRole,           // 'admin' | 'user'
     registroCompleto,
     emailConfirmed,     // true si email_confirmed_at no es null
+    
+    // OAuth detection - para ocultar cambio de contraseña en usuarios Google/Apple
+    isOAuthUser: user?.app_metadata?.provider && user.app_metadata.provider !== 'email',
+    authProvider: user?.app_metadata?.provider || 'email', // 'email' | 'google' | 'apple'
     
     // Trial y acceso
     isTrialActive,         // true si el trial de 7 días está activo

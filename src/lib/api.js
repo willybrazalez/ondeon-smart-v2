@@ -434,6 +434,51 @@ export const contenidosApi = {
     
     logger.dev(`✅ Programación ${programacionId} ${desactivar ? 'desactivada' : 'activada'}`);
     return data;
+  },
+
+  /**
+   * Obtiene los contenidos propios del usuario (creados por él).
+   * Busca por usuario_id (tabla usuarios) o por auth_user_id (si se pasa auth ID)
+   */
+  async getMyContents(userId) {
+    // Primero intentar buscar por usuario_id directo
+    let { data, error } = await measureQuery('contenidos.getMyContents', () =>
+      supabase
+        .from('contenidos')
+        .select('*')
+        .eq('usuario_id', userId)
+        .eq('activo', true)
+        .order('created_at', { ascending: false })
+    );
+    
+    // Si no hay resultados, buscar el usuario_id basado en auth_user_id
+    if (!data || data.length === 0) {
+      const { data: usuario } = await supabase
+        .from('usuarios')
+        .select('id')
+        .eq('auth_user_id', userId)
+        .single();
+      
+      if (usuario?.id) {
+        const result = await supabase
+          .from('contenidos')
+          .select('*')
+          .eq('usuario_id', usuario.id)
+          .eq('activo', true)
+          .order('created_at', { ascending: false });
+        
+        data = result.data;
+        error = result.error;
+      }
+    }
+    
+    if (error) {
+      logger.error('❌ Error obteniendo mis contenidos:', error);
+      throw error;
+    }
+    
+    logger.dev(`✅ ${data?.length || 0} contenidos propios obtenidos`);
+    return data || [];
   }
 };
 
@@ -648,8 +693,8 @@ export const usuariosApi = {
 
 export const contentAssignmentsApi = {
   /**
-   * Obtiene los contenidos de programaciones activas/pausadas asignadas al usuario.
-   * Devuelve los contenidos con su información de programación.
+   * Obtiene los contenidos de programaciones activas/pausadas del usuario.
+   * Usa programaciones.usuario_id directamente (no usa programacion_destinatarios).
    */
   async getUserProgrammingContent(userId) {
     if (!userId) {
@@ -658,34 +703,25 @@ export const contentAssignmentsApi = {
     }
 
     try {
-      // 1. Obtener las programaciones asignadas al usuario
-      const { data: asignaciones, error: errorAsignaciones } = await measureQuery(
-        'get_user_programaciones',
-        () => supabase
-          .from('programacion_destinatarios')
-          .select('programacion_id')
-          .eq('usuario_id', userId)
-      );
-
-      if (errorAsignaciones) {
-        logger.error('❌ Error obteniendo asignaciones:', errorAsignaciones);
-        throw errorAsignaciones;
+      // Primero obtener el usuario_id real de la tabla usuarios
+      let realUserId = userId;
+      const { data: usuario } = await supabase
+        .from('usuarios')
+        .select('id')
+        .eq('auth_user_id', userId)
+        .single();
+      
+      if (usuario?.id) {
+        realUserId = usuario.id;
       }
 
-      if (!asignaciones || asignaciones.length === 0) {
-        logger.dev('📭 Usuario sin programaciones asignadas');
-        return [];
-      }
-
-      const programacionIds = asignaciones.map(a => a.programacion_id);
-
-      // 2. Obtener las programaciones con estado activo o pausado
+      // 1. Obtener las programaciones del usuario con estado activo o pausado
       const { data: programaciones, error: errorProgramaciones } = await measureQuery(
-        'get_programaciones_activas',
+        'get_programaciones_usuario',
         () => supabase
           .from('programaciones')
-          .select('id, nombre, descripcion, tipo, frecuencia_minutos, hora_inicio, hora_fin, modo_audio, esperar_fin_cancion, estado, daily_mode, cada_dias, rango_desde, rango_hasta, hora_una_vez_dia, weekly_mode, weekly_days, weekly_rango_desde, weekly_rango_hasta, weekly_hora_una_vez, annual_date, annual_time')
-          .in('id', programacionIds)
+          .select('id, nombre, descripcion, tipo, frecuencia_minutos, hora_inicio, hora_fin, modo_audio, estado')
+          .eq('usuario_id', realUserId)
           .in('estado', ['activo', 'pausado'])
       );
 
@@ -695,13 +731,13 @@ export const contentAssignmentsApi = {
       }
 
       if (!programaciones || programaciones.length === 0) {
-        logger.dev('📭 No hay programaciones activas/pausadas');
+        logger.dev('📭 Usuario sin programaciones activas/pausadas');
         return [];
       }
 
-      const programacionIdsActivos = programaciones.map(p => p.id);
+      const programacionIds = programaciones.map(p => p.id);
 
-      // 3. Obtener los contenidos de esas programaciones
+      // 2. Obtener los contenidos de esas programaciones
       const { data: programacionContenidos, error: errorContenidos } = await measureQuery(
         'get_programacion_contenidos',
         () => supabase
@@ -714,13 +750,13 @@ export const contentAssignmentsApi = {
             contenidos (
               id,
               nombre,
-              tipo_contenido,
+              tipo,
               url_s3,
               duracion_segundos,
               activo
             )
           `)
-          .in('programacion_id', programacionIdsActivos)
+          .in('programacion_id', programacionIds)
           .order('orden', { ascending: true })
       );
 
@@ -729,7 +765,7 @@ export const contentAssignmentsApi = {
         throw errorContenidos;
       }
 
-      // 4. Combinar datos: cada contenido con su info de programación
+      // 3. Combinar datos: cada contenido con su info de programación
       const resultado = (programacionContenidos || [])
         .filter(pc => pc.contenidos && pc.contenidos.activo !== false)
         .map(pc => {
@@ -748,20 +784,7 @@ export const contentAssignmentsApi = {
               hora_inicio: prog.hora_inicio,
               hora_fin: prog.hora_fin,
               modo_audio: prog.modo_audio,
-              esperar_fin_cancion: prog.esperar_fin_cancion,
-              estado: prog.estado,
-              daily_mode: prog.daily_mode,
-              cada_dias: prog.cada_dias,
-              rango_desde: prog.rango_desde,
-              rango_hasta: prog.rango_hasta,
-              hora_una_vez_dia: prog.hora_una_vez_dia,
-              weekly_mode: prog.weekly_mode,
-              weekly_days: prog.weekly_days,
-              weekly_rango_desde: prog.weekly_rango_desde,
-              weekly_rango_hasta: prog.weekly_rango_hasta,
-              weekly_hora_una_vez: prog.weekly_hora_una_vez,
-              annual_date: prog.annual_date,
-              annual_time: prog.annual_time
+              estado: prog.estado
             } : null
           };
         });
@@ -777,6 +800,249 @@ export const contentAssignmentsApi = {
 };
 
 // ============================================================================
+// SECTIONS API - Secciones del home y favoritos
+// ============================================================================
+
+export const sectionsApi = {
+  _cache: {
+    sections: null,
+    sectionChannels: {},
+    favorites: null,
+    timestamp: {}
+  },
+  _cacheTime: 3 * 60 * 1000, // 3 minutos
+  
+  /**
+   * Obtiene todas las secciones del home activas
+   */
+  async getHomeSections(forceRefresh = false) {
+    const cacheKey = 'sections';
+    
+    // Verificar cache
+    if (!forceRefresh && 
+        this._cache.sections && 
+        this._cache.timestamp[cacheKey] &&
+        (Date.now() - this._cache.timestamp[cacheKey]) < this._cacheTime) {
+      logger.dev('⚡ Secciones obtenidas desde cache');
+      return this._cache.sections;
+    }
+    
+    const { data, error } = await measureQuery('rpc_get_home_sections', () =>
+      supabase.rpc('rpc_get_home_sections')
+    );
+    
+    if (error) {
+      logger.error('❌ Error en rpc_get_home_sections:', error);
+      throw error;
+    }
+    
+    if (data?.error) {
+      const err = new Error(data.error);
+      err.code = 'NOT_AUTHENTICATED';
+      throw err;
+    }
+    
+    // Parsear el JSON si es necesario
+    const sections = typeof data === 'string' ? JSON.parse(data) : data;
+    
+    // Guardar en cache
+    this._cache.sections = sections || [];
+    this._cache.timestamp[cacheKey] = Date.now();
+    
+    logger.dev(`✅ ${sections?.length || 0} secciones obtenidas`);
+    return sections || [];
+  },
+  
+  /**
+   * Obtiene los canales de una sección específica según su tipo
+   */
+  async getSectionChannels(sectionId, forceRefresh = false) {
+    if (!sectionId) {
+      logger.warn('⚠️ getSectionChannels llamado sin sectionId');
+      return [];
+    }
+    
+    const cacheKey = `section_${sectionId}`;
+    
+    // Verificar cache
+    if (!forceRefresh && 
+        this._cache.sectionChannels[sectionId] && 
+        this._cache.timestamp[cacheKey] &&
+        (Date.now() - this._cache.timestamp[cacheKey]) < this._cacheTime) {
+      logger.dev(`⚡ Canales de sección ${sectionId} obtenidos desde cache`);
+      return this._cache.sectionChannels[sectionId];
+    }
+    
+    const { data, error } = await measureQuery('rpc_get_section_channels', () =>
+      supabase.rpc('rpc_get_section_channels', { p_seccion_id: sectionId })
+    );
+    
+    if (error) {
+      logger.error('❌ Error en rpc_get_section_channels:', error);
+      throw error;
+    }
+    
+    if (data?.error) {
+      logger.warn(`⚠️ ${data.error}`);
+      return [];
+    }
+    
+    // Parsear el JSON si es necesario
+    const channels = typeof data === 'string' ? JSON.parse(data) : data;
+    
+    // Guardar en cache
+    this._cache.sectionChannels[sectionId] = channels || [];
+    this._cache.timestamp[cacheKey] = Date.now();
+    
+    logger.dev(`✅ ${channels?.length || 0} canales de sección obtenidos`);
+    return channels || [];
+  },
+  
+  /**
+   * Añade o quita un canal de favoritos
+   */
+  async toggleFavorite(canalId) {
+    if (!canalId) {
+      logger.warn('⚠️ toggleFavorite llamado sin canalId');
+      return { success: false, error: 'Canal ID requerido' };
+    }
+    
+    const { data, error } = await measureQuery('rpc_toggle_favorite_channel', () =>
+      supabase.rpc('rpc_toggle_favorite_channel', { p_canal_id: canalId })
+    );
+    
+    if (error) {
+      logger.error('❌ Error en rpc_toggle_favorite_channel:', error);
+      throw error;
+    }
+    
+    // Parsear el JSON si es necesario
+    const result = typeof data === 'string' ? JSON.parse(data) : data;
+    
+    if (result?.success) {
+      // Invalidar cache de favoritos
+      this.invalidateFavoritesCache();
+      
+      logger.dev(`✅ Favorito ${result.action === 'added' ? 'añadido' : 'eliminado'}`);
+    }
+    
+    return result;
+  },
+  
+  /**
+   * Verifica si un canal es favorito
+   */
+  async checkIsFavorite(canalId) {
+    if (!canalId) return false;
+    
+    const { data, error } = await supabase.rpc('rpc_check_is_favorite', { 
+      p_canal_id: canalId 
+    });
+    
+    if (error) {
+      logger.error('❌ Error en rpc_check_is_favorite:', error);
+      return false;
+    }
+    
+    return data === true;
+  },
+  
+  /**
+   * Obtiene todos los canales favoritos del usuario
+   */
+  async getUserFavorites(forceRefresh = false) {
+    const cacheKey = 'favorites';
+    
+    // Verificar cache
+    if (!forceRefresh && 
+        this._cache.favorites && 
+        this._cache.timestamp[cacheKey] &&
+        (Date.now() - this._cache.timestamp[cacheKey]) < this._cacheTime) {
+      logger.dev('⚡ Favoritos obtenidos desde cache');
+      return this._cache.favorites;
+    }
+    
+    const { data, error } = await measureQuery('rpc_get_user_favorites', () =>
+      supabase.rpc('rpc_get_user_favorites')
+    );
+    
+    if (error) {
+      logger.error('❌ Error en rpc_get_user_favorites:', error);
+      throw error;
+    }
+    
+    // Parsear el JSON si es necesario
+    const favorites = typeof data === 'string' ? JSON.parse(data) : data;
+    
+    // Guardar en cache
+    this._cache.favorites = favorites || [];
+    this._cache.timestamp[cacheKey] = Date.now();
+    
+    logger.dev(`✅ ${favorites?.length || 0} favoritos obtenidos`);
+    return favorites || [];
+  },
+  
+  /**
+   * Invalida el cache de secciones
+   */
+  invalidateSectionsCache() {
+    this._cache.sections = null;
+    delete this._cache.timestamp['sections'];
+    logger.dev('🗑️ Cache de secciones invalidado');
+  },
+  
+  /**
+   * Invalida el cache de canales de una sección
+   */
+  invalidateSectionChannelsCache(sectionId = null) {
+    if (sectionId) {
+      delete this._cache.sectionChannels[sectionId];
+      delete this._cache.timestamp[`section_${sectionId}`];
+      logger.dev(`🗑️ Cache de sección ${sectionId} invalidado`);
+    } else {
+      this._cache.sectionChannels = {};
+      // Limpiar timestamps de secciones
+      Object.keys(this._cache.timestamp).forEach(key => {
+        if (key.startsWith('section_')) {
+          delete this._cache.timestamp[key];
+        }
+      });
+      logger.dev('🗑️ Cache de todas las secciones invalidado');
+    }
+  },
+  
+  /**
+   * Invalida el cache de favoritos
+   */
+  invalidateFavoritesCache() {
+    this._cache.favorites = null;
+    delete this._cache.timestamp['favorites'];
+    
+    // También invalidar cache de sección de favoritos si existe
+    const sections = this._cache.sections || [];
+    const favSection = sections.find(s => s.tipo === 'favoritos');
+    if (favSection?.id) {
+      this.invalidateSectionChannelsCache(favSection.id);
+    }
+    
+    logger.dev('🗑️ Cache de favoritos invalidado');
+  },
+  
+  /**
+   * Invalida todo el cache de secciones
+   */
+  invalidateAllCache() {
+    this._cache = {
+      sections: null,
+      sectionChannels: {},
+      favorites: null,
+      timestamp: {}
+    };
+    logger.dev('🗑️ Cache completo de secciones invalidado');
+  }
+};
+
+// ============================================================================
 // EXPORT DEFAULT
 // ============================================================================
 
@@ -788,5 +1054,6 @@ export default {
   contenidosApi,
   authApi,
   usuariosApi,
-  contentAssignmentsApi
+  contentAssignmentsApi,
+  sectionsApi
 };

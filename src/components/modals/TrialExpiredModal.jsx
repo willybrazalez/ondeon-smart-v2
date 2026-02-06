@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Clock, Lock, Check, Music, Radio, FileText, PlusCircle, Crown } from 'lucide-react';
+import { X, Clock, Lock, Check, Crown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import UpgradePromptMobile from '@/components/mobile/UpgradePromptMobile';
 
@@ -11,6 +12,7 @@ import UpgradePromptMobile from '@/components/mobile/UpgradePromptMobile';
  * de que su trial de 7 días haya expirado.
  */
 export default function TrialExpiredModal({ isOpen, onClose }) {
+  const navigate = useNavigate();
   const [showMobilePrompt, setShowMobilePrompt] = useState(false);
   
   // Detectar si estamos en plataforma nativa
@@ -20,8 +22,9 @@ export default function TrialExpiredModal({ isOpen, onClose }) {
     if (isNative) {
       setShowMobilePrompt(true);
     } else {
-      window.open('https://ondeon.es', '_blank');
+      // En web: abrir modal de planes en gestor
       onClose();
+      navigate('/gestor?modal=planes');
     }
   };
 

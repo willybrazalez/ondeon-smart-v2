@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   User,
@@ -30,13 +30,15 @@ import {
   RefreshCw,
   XCircle,
   Wallet,
-  Home
+  Home,
+  Check,
+  Crown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSubscription, SUBSCRIPTION_STATUS } from '@/hooks/useSubscription';
-import { stripeApi } from '@/lib/stripeApi';
+import { stripeApi, STRIPE_PRICES } from '@/lib/stripeApi';
 import { supabase } from '@/lib/supabase';
 import logger from '@/lib/logger';
 
@@ -103,7 +105,8 @@ const Modal = ({ isOpen, onClose, title, children }) => {
  */
 const GestorDashboard = () => {
   const navigate = useNavigate();
-  const { user, signOut, loadUserProfile, updateUserProfile } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { user, signOut, loadUserProfile, updateUserProfile, isTrialActive, daysLeftInTrial, planTipo, isOAuthUser, authProvider } = useAuth();
   const { 
     subscription, 
     loading,
@@ -119,6 +122,11 @@ const GestorDashboard = () => {
   // Estados de modales
   const [activeModal, setActiveModal] = useState(null);
   const [stripeLoading, setStripeLoading] = useState(false);
+  
+  // Estados para modal de planes
+  const [billingCycle, setBillingCycle] = useState('mensual');
+  const [loadingPlan, setLoadingPlan] = useState(null);
+  const [planError, setPlanError] = useState(null);
 
   // Estados para edición de perfil
   const [isEditing, setIsEditing] = useState(false);
@@ -159,6 +167,17 @@ const GestorDashboard = () => {
   // Usar el sistema de temas correctamente
   const { theme, setTheme } = useTheme();
   const previousThemeRef = React.useRef(theme);
+  
+  // Detectar parámetro modal=planes en la URL
+  useEffect(() => {
+    const modalParam = searchParams.get('modal');
+    if (modalParam === 'planes') {
+      setActiveModal('planes');
+      // Limpiar el parámetro de la URL
+      searchParams.delete('modal');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   
   // Forzar tema oscuro en este dashboard y restaurar al salir
   useEffect(() => {
@@ -394,10 +413,133 @@ const GestorDashboard = () => {
     }
   };
 
+  // Seleccionar plan y crear checkout o cambiar plan
+  const handleSelectPlan = async (planId) => {
+    if (!user) return;
+
+    setPlanError(null);
+    setLoadingPlan(planId);
+
+    try {
+      // Si el usuario ya tiene suscripción activa/trialing, usar el portal de Stripe para cambiar plan
+      const hasActiveSubscription = subscription && 
+        (subscription.estado === 'active' || subscription.estado === 'trialing');
+      
+      if (hasActiveSubscription) {
+        logger.dev('📋 Usuario con suscripción activa, redirigiendo al portal de Stripe para cambiar plan...');
+        
+        // Abrir portal de Stripe para cambiar plan
+        const { portal_url } = await stripeApi.getPortalUrl(
+          user.id, 
+          `${window.location.origin}/gestor?plan_changed=true`,
+          'subscription_update' // Ir directo a cambiar plan
+        );
+        
+        if (portal_url) {
+          window.location.href = portal_url;
+        } else {
+          throw new Error('No se pudo obtener URL del portal');
+        }
+        return;
+      }
+
+      // Si no tiene suscripción, crear nuevo checkout
+      const planData = STRIPE_PRICES[planId];
+      const priceId = billingCycle === 'anual' ? planData.anual : planData.mensual;
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+      
+      logger.dev('🔐 Sesión para checkout:', { 
+        hasSession: !!session, 
+        hasToken: !!accessToken,
+        tokenPrefix: accessToken?.substring(0, 20) + '...'
+      });
+
+      const result = await stripeApi.createCheckoutSession({
+        auth_user_id: user.id,
+        email: user.email,
+        nombre: user.user_metadata?.nombre || user.user_metadata?.establecimiento || user.email,
+        price_id: priceId,
+        plan_nombre: planData.nombre,
+        telefono: user.user_metadata?.telefono,
+        nombre_negocio: user.user_metadata?.establecimiento,
+        success_url: `${window.location.origin}/gestor?session_id={CHECKOUT_SESSION_ID}&plan=${planId}`,
+        cancel_url: `${window.location.origin}/gestor?cancelled=true`,
+        access_token: accessToken
+      });
+
+      if (result.checkout_url) {
+        window.location.href = result.checkout_url;
+      }
+    } catch (err) {
+      logger.error('Error iniciando checkout:', err);
+      setPlanError('No se pudo iniciar el proceso de pago. Por favor, inténtalo de nuevo.');
+    } finally {
+      setLoadingPlan(null);
+    }
+  };
+
+  // Obtener precio según ciclo
+  const getPlanPrice = (planId) => {
+    const plan = STRIPE_PRICES[planId];
+    return billingCycle === 'anual' ? plan.precioMensualAnual : plan.precioMensual;
+  };
+
+  // Verificar si es el plan actual
+  const isCurrentPlan = (planId) => {
+    return subscription?.plan_nombre?.toLowerCase().includes(planId);
+  };
+
+  // Configuración de planes
+  const plansConfig = {
+    basico: {
+      id: 'basico',
+      name: 'Ondeón Básico',
+      subtitle: 'Perfecto para comenzar',
+      popular: false,
+      features: [
+        '28 Canales de música tematizados',
+        'Licencia Comercial',
+        'Certificado libre de regalías',
+        'Indicativos de Voz para tu Marca',
+        'Soporte Técnico',
+        'Actualización Mensual de canales',
+        '1 zona de reproducción',
+        'Sin permanencia',
+      ],
+    },
+    pro: {
+      id: 'pro',
+      name: 'Ondeón Pro',
+      subtitle: 'Para negocios en crecimiento',
+      popular: true,
+      features: [
+        'Todo lo incluido en el plan BÁSICO',
+        'Audio Marketing',
+        'Indicativos de tu marca',
+        'Campañas publicitarias (Cuñas, Menciones)',
+        'Anuncios inmediatos con IA',
+        'Sin permanencia',
+      ],
+    },
+  };
+
   // Obtener icono y color del estado de suscripción
   const getSubscriptionInfo = () => {
     if (loading) return { icon: Clock, color: 'text-white/50', bg: 'bg-white/10', label: 'Cargando...' };
-    if (!subscription) return { icon: AlertTriangle, color: 'text-yellow-500', bg: 'bg-yellow-500/10', label: 'Sin suscripción' };
+    
+    // Si no hay suscripción en Stripe pero hay trial activo en el sistema
+    if (!subscription) {
+      if (isTrialActive && daysLeftInTrial > 0) {
+        return { icon: Clock, color: 'text-blue-500', bg: 'bg-blue-500/10', label: `Trial - ${daysLeftInTrial} días restantes` };
+      }
+      if (planTipo === 'trial' && !isTrialActive) {
+        return { icon: AlertTriangle, color: 'text-amber-500', bg: 'bg-amber-500/10', label: 'Trial expirado' };
+      }
+      return { icon: AlertTriangle, color: 'text-yellow-500', bg: 'bg-yellow-500/10', label: 'Selecciona un plan' };
+    }
+    
     // Verificar trial ANTES de active (porque hasActiveSubscription incluye trialing)
     if (isInTrial()) return { icon: Clock, color: 'text-blue-500', bg: 'bg-blue-500/10', label: `En prueba - ${getTrialDaysRemaining()} días` };
     if (subscription?.estado === 'active') return { icon: CheckCircle, color: 'text-green-500', bg: 'bg-green-500/10', label: 'Activa' };
@@ -758,126 +900,128 @@ const GestorDashboard = () => {
               )}
             </div>
 
-            {/* Sección: Cambiar contraseña */}
-            <div className="pt-4 border-t border-white/10">
-              {/* Mensajes de contraseña */}
-              {passwordError && (
-                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm mb-4">
-                  {passwordError}
-                </div>
-              )}
-              {passwordSuccess && (
-                <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-sm mb-4">
-                  {passwordSuccess}
-                </div>
-              )}
+            {/* Sección: Cambiar contraseña - Solo para usuarios con email/password, no OAuth */}
+            {!isOAuthUser && (
+              <div className="pt-4 border-t border-white/10">
+                {/* Mensajes de contraseña */}
+                {passwordError && (
+                  <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm mb-4">
+                    {passwordError}
+                  </div>
+                )}
+                {passwordSuccess && (
+                  <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-sm mb-4">
+                    {passwordSuccess}
+                  </div>
+                )}
 
-              {!showPasswordSection ? (
-                <button
-                  onClick={() => setShowPasswordSection(true)}
-                  className="flex items-center gap-3 w-full p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-colors text-left"
-                >
-                  <div className="w-10 h-10 rounded-full bg-[#A2D9F7]/10 flex items-center justify-center flex-shrink-0">
-                    <Lock className="w-5 h-5 text-[#A2D9F7]" />
-                  </div>
-                  <div>
-                    <p className="text-white/90 font-medium">Cambiar contraseña</p>
-                    <p className="text-xs text-white/40">Actualiza tu contraseña de acceso</p>
-                  </div>
-                </button>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                {!showPasswordSection ? (
+                  <button
+                    onClick={() => setShowPasswordSection(true)}
+                    className="flex items-center gap-3 w-full p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-[#A2D9F7]/10 flex items-center justify-center flex-shrink-0">
                       <Lock className="w-5 h-5 text-[#A2D9F7]" />
-                      <p className="text-white/90 font-medium">Cambiar contraseña</p>
                     </div>
-                    <button
-                      onClick={() => {
-                        setShowPasswordSection(false);
-                        setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-                        setPasswordError('');
-                      }}
-                      className="text-white/40 hover:text-white/60"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-
-                  {/* Contraseña actual */}
-                  <div>
-                    <label className="text-xs text-white/40 mb-1 block">Contraseña actual</label>
-                    <div className="relative">
-                      <input
-                        type={showCurrentPassword ? 'text' : 'password'}
-                        value={passwordData.currentPassword}
-                        onChange={(e) => handlePasswordChange('currentPassword', e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 pr-10 text-white/90 focus:outline-none focus:border-[#A2D9F7]/50"
-                        placeholder="Tu contraseña actual"
-                      />
+                    <div>
+                      <p className="text-white/90 font-medium">Cambiar contraseña</p>
+                      <p className="text-xs text-white/40">Actualiza tu contraseña de acceso</p>
+                    </div>
+                  </button>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Lock className="w-5 h-5 text-[#A2D9F7]" />
+                        <p className="text-white/90 font-medium">Cambiar contraseña</p>
+                      </div>
                       <button
-                        type="button"
-                        onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
+                        onClick={() => {
+                          setShowPasswordSection(false);
+                          setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                          setPasswordError('');
+                        }}
+                        className="text-white/40 hover:text-white/60"
                       >
-                        {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        <X className="w-5 h-5" />
                       </button>
                     </div>
-                  </div>
 
-                  {/* Nueva contraseña */}
-                  <div>
-                    <label className="text-xs text-white/40 mb-1 block">Nueva contraseña</label>
-                    <div className="relative">
+                    {/* Contraseña actual */}
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">Contraseña actual</label>
+                      <div className="relative">
+                        <input
+                          type={showCurrentPassword ? 'text' : 'password'}
+                          value={passwordData.currentPassword}
+                          onChange={(e) => handlePasswordChange('currentPassword', e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 pr-10 text-white/90 focus:outline-none focus:border-[#A2D9F7]/50"
+                          placeholder="Tu contraseña actual"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
+                        >
+                          {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Nueva contraseña */}
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">Nueva contraseña</label>
+                      <div className="relative">
+                        <input
+                          type={showNewPassword ? 'text' : 'password'}
+                          value={passwordData.newPassword}
+                          onChange={(e) => handlePasswordChange('newPassword', e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 pr-10 text-white/90 focus:outline-none focus:border-[#A2D9F7]/50"
+                          placeholder="Mínimo 6 caracteres"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
+                        >
+                          {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Confirmar contraseña */}
+                    <div>
+                      <label className="text-xs text-white/40 mb-1 block">Confirmar nueva contraseña</label>
                       <input
                         type={showNewPassword ? 'text' : 'password'}
-                        value={passwordData.newPassword}
-                        onChange={(e) => handlePasswordChange('newPassword', e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 pr-10 text-white/90 focus:outline-none focus:border-[#A2D9F7]/50"
-                        placeholder="Mínimo 6 caracteres"
+                        value={passwordData.confirmPassword}
+                        onChange={(e) => handlePasswordChange('confirmPassword', e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white/90 focus:outline-none focus:border-[#A2D9F7]/50"
+                        placeholder="Repite la nueva contraseña"
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowNewPassword(!showNewPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
-                      >
-                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
                     </div>
-                  </div>
 
-                  {/* Confirmar contraseña */}
-                  <div>
-                    <label className="text-xs text-white/40 mb-1 block">Confirmar nueva contraseña</label>
-                    <input
-                      type={showNewPassword ? 'text' : 'password'}
-                      value={passwordData.confirmPassword}
-                      onChange={(e) => handlePasswordChange('confirmPassword', e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white/90 focus:outline-none focus:border-[#A2D9F7]/50"
-                      placeholder="Repite la nueva contraseña"
-                    />
+                    <Button
+                      className="w-full h-11 bg-[#A2D9F7]/20 hover:bg-[#A2D9F7]/30 text-white border border-[#A2D9F7]/30"
+                      onClick={handleChangePassword}
+                      disabled={passwordLoading}
+                    >
+                      {passwordLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Actualizando...
+                        </>
+                      ) : (
+                        <>
+                          <Lock className="w-4 h-4 mr-2" />
+                          Actualizar contraseña
+                        </>
+                      )}
+                    </Button>
                   </div>
-
-                  <Button
-                    className="w-full h-11 bg-[#A2D9F7]/20 hover:bg-[#A2D9F7]/30 text-white border border-[#A2D9F7]/30"
-                    onClick={handleChangePassword}
-                    disabled={passwordLoading}
-                  >
-                    {passwordLoading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Actualizando...
-                      </>
-                    ) : (
-                      <>
-                        <Lock className="w-4 h-4 mr-2" />
-                        Actualizar contraseña
-                      </>
-                    )}
-                  </Button>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Modal>
@@ -1162,6 +1306,221 @@ const GestorDashboard = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Modal: Planes - Versión ampliada */}
+      <AnimatePresence>
+        {activeModal === 'planes' && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            onClick={() => { setActiveModal(null); setPlanError(null); }}
+          >
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+            
+            {/* Modal amplio */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-[#0d1117] border border-white/10 rounded-2xl shadow-2xl overflow-hidden"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between p-5 border-b border-white/10 flex-shrink-0">
+                <div>
+                  <h2 className="text-xl font-semibold text-white">Planes y precios</h2>
+                  <p className="text-sm text-white/50">Elige el plan perfecto para tu negocio</p>
+                </div>
+                <button
+                  onClick={() => { setActiveModal(null); setPlanError(null); }}
+                  className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                >
+                  <X className="w-5 h-5 text-white/60" />
+                </button>
+              </div>
+              
+              {/* Content */}
+              <div className="p-5 overflow-y-auto flex-1">
+                {/* Toggle Mensual/Anual */}
+                <div className="flex justify-center items-center gap-3 mb-5">
+                  <span className={`text-sm ${billingCycle === 'mensual' ? 'text-white' : 'text-white/50'}`}>
+                    Mensual
+                  </span>
+                  <button
+                    onClick={() => setBillingCycle(billingCycle === 'mensual' ? 'anual' : 'mensual')}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${
+                      billingCycle === 'anual' ? 'bg-[#A2D9F7]' : 'bg-white/20'
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-transform ${
+                        billingCycle === 'anual' ? 'translate-x-[26px]' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                  <span className={`text-sm ${billingCycle === 'anual' ? 'text-white' : 'text-white/50'}`}>
+                    Anual
+                  </span>
+                  {billingCycle === 'anual' && (
+                    <span className="ml-1 px-2.5 py-1 rounded-full bg-[#A2D9F7]/20 text-[#A2D9F7] text-xs font-medium">
+                      Ahorra hasta 22%
+                    </span>
+                  )}
+                </div>
+
+                {/* Estado actual */}
+                {(isTrialActive || subscription) && (
+                  <div className={`mb-5 p-3 rounded-xl border ${
+                    isTrialActive 
+                      ? 'bg-blue-500/10 border-blue-500/30' 
+                      : subscription?.estado === 'active'
+                        ? 'bg-green-500/10 border-green-500/30'
+                        : 'bg-white/5 border-white/10'
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                        isTrialActive ? 'bg-blue-500/20' : 'bg-green-500/20'
+                      }`}>
+                        {isTrialActive ? (
+                          <Clock className="w-4 h-4 text-blue-400" />
+                        ) : (
+                          <Check className="w-4 h-4 text-green-400" />
+                        )}
+                      </div>
+                      <div>
+                        {isTrialActive ? (
+                          <>
+                            <p className="text-white font-medium text-sm">Trial activo · {daysLeftInTrial} días restantes</p>
+                            <p className="text-xs text-blue-300">Elige un plan para continuar después del trial</p>
+                          </>
+                        ) : subscription && (
+                          <>
+                            <p className="text-white font-medium text-sm">{subscription.plan_nombre || 'Plan Activo'}</p>
+                            <p className="text-xs text-green-300">Suscripción activa</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error */}
+                {planError && (
+                  <div className="mb-5 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm text-center">
+                    {planError}
+                  </div>
+                )}
+
+                {/* Cards de planes - Grid 2 columnas */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {Object.values(plansConfig).map((plan) => {
+                    const price = getPlanPrice(plan.id);
+                    const currentPlan = isCurrentPlan(plan.id);
+
+                    return (
+                      <div
+                        key={plan.id}
+                        className={`relative flex flex-col rounded-xl border transition-all ${
+                          plan.popular 
+                            ? 'bg-[#0f1520] border-[#A2D9F7]/30' 
+                            : 'bg-[#0c1018] border-white/10'
+                        } ${currentPlan ? 'ring-2 ring-green-500/50' : ''}`}
+                      >
+                        {/* Badge popular */}
+                        {plan.popular && (
+                          <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-10">
+                            <span className="px-3 py-1 rounded-full text-[10px] font-semibold bg-[#A2D9F7] text-[#0a0e14]">
+                              Más popular
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Badge plan actual */}
+                        {currentPlan && (
+                          <div className="absolute -top-2.5 right-3 z-10">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500 text-white">
+                              Tu plan
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="p-5 flex-1 flex flex-col">
+                          {/* Header del plan */}
+                          <div className="mb-4">
+                            <h3 className="text-lg font-bold text-white">{plan.name}</h3>
+                            <p className="text-xs text-white/50">{plan.subtitle}</p>
+                          </div>
+
+                          {/* Precio */}
+                          <div className="mb-1">
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-3xl font-bold text-white">€{price}</span>
+                              <span className="text-white/50 text-sm">/mes</span>
+                            </div>
+                            {billingCycle === 'anual' && (
+                              <p className="text-xs text-white/40">Facturado anualmente</p>
+                            )}
+                          </div>
+
+                          {/* IVA incluido */}
+                          <div className="mb-4">
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] bg-[#A2D9F7]/10 text-[#A2D9F7] border border-[#A2D9F7]/20">
+                              IVA incluido
+                            </span>
+                          </div>
+
+                          {/* Características */}
+                          <div className="flex-1 space-y-2 mb-5">
+                            {plan.features.map((feature, idx) => (
+                              <div key={idx} className="flex items-start gap-2">
+                                <Check className="w-4 h-4 text-[#A2D9F7] flex-shrink-0 mt-0.5" />
+                                <span className="text-sm text-white/70">{feature}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Botón */}
+                          <Button
+                            onClick={() => handleSelectPlan(plan.id)}
+                            disabled={loadingPlan !== null || currentPlan}
+                            className={`w-full h-11 font-semibold text-sm rounded-xl transition-all ${
+                              plan.popular
+                                ? 'bg-[#A2D9F7] hover:bg-[#8BC9E7] text-[#0a0e14]'
+                                : 'bg-transparent hover:bg-white/10 text-white border-2 border-white/20 hover:border-white/40'
+                            } ${currentPlan ? 'opacity-50' : ''}`}
+                          >
+                            {loadingPlan === plan.id ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Procesando...
+                              </>
+                            ) : currentPlan ? (
+                              'Plan actual'
+                            ) : (
+                              <>
+                                <Crown className="w-4 h-4 mr-2" />
+                                Elegir {plan.name.split(' ')[1]}
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Info */}
+                <p className="mt-5 text-xs text-white/40 text-center">
+                  Sin permanencia · Cancela cuando quieras
+                </p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

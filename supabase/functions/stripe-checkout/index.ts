@@ -2,7 +2,7 @@
  * Edge Function: stripe-checkout
  * 
  * Crea una sesión de Stripe Checkout para suscripción de gestores.
- * - Trial de 7 días
+ * - Cobro inmediato (sin trial de Stripe - el trial se gestiona en la app)
  * - Tarjeta obligatoria
  * - Actualiza registros_pendientes
  * 
@@ -178,7 +178,8 @@ serve(async (req) => {
     const defaultSuccessUrl = `${req.headers.get('origin') || 'https://ondeon.es'}/descarga?session_id={CHECKOUT_SESSION_ID}`
     const defaultCancelUrl = `${req.headers.get('origin') || 'https://ondeon.es'}/registro?cancelled=true`
 
-    // Crear sesión de Checkout con trial de 7 días
+    // Crear sesión de Checkout (cobro inmediato, sin trial de Stripe)
+    // El trial se gestiona en el frontend de la app
     const session = await stripe.checkout.sessions.create({
       customer: stripeCustomerId,
       mode: 'subscription',
@@ -190,7 +191,8 @@ serve(async (req) => {
         },
       ],
       subscription_data: {
-        trial_period_days: 7, // 7 días de trial
+        // Sin trial_period_days - cobro inmediato
+        // El trial de la app se gestiona independientemente en el frontend
         metadata: {
           auth_user_id: auth_user_id,
           plan_nombre: plan_nombre || 'Plan Gestor'

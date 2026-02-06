@@ -1,11 +1,11 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSubscription, SUBSCRIPTION_STATUS } from '@/hooks/useSubscription';
 import { useRole } from '@/hooks/useRole';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, Loader2, CreditCard } from 'lucide-react';
+import { AlertTriangle, Loader2, CreditCard, Crown } from 'lucide-react';
 
 /**
  * Componente que protege rutas según el estado de la suscripción
@@ -22,6 +22,7 @@ const SubscriptionGuard = ({
   fallbackPath = null,
   fallbackComponent = null 
 }) => {
+  const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const { userRole } = useRole();
   const { 
@@ -111,9 +112,10 @@ const SubscriptionGuard = ({
           ) : (
             <Button 
               className="w-full"
-              onClick={() => window.open('https://ondeon.es/registro-gestor', '_blank')}
+              onClick={() => navigate('/gestor?modal=planes')}
             >
-              Completar Registro
+              <Crown className="w-4 h-4 mr-2" />
+              Ver planes
             </Button>
           )}
         </Card>

@@ -73,23 +73,36 @@ export default function RegisterPage() {
   // Ref para evitar procesar tokens múltiples veces
   const processedTokensRef = useRef(false);
   
+  // 🔑 Estado para indicar que estamos procesando tokens (bloquea otros useEffect)
+  const [processingTokens, setProcessingTokens] = useState(() => {
+    // Inicializar como true si hay tokens en el hash (para bloquear otros useEffect desde el inicio)
+    const hash = window.location.hash;
+    return hash && (hash.includes('access_token') || hash.includes('type='));
+  });
+  
   // 🔑 CRÍTICO: Procesar tokens de verificación de email en el hash de la URL
   // Cuando el usuario pulsa el link del email, Supabase redirige aquí con tokens
+  // Este useEffect tiene PRIORIDAD sobre los demás
   useEffect(() => {
     const processEmailVerificationTokens = async () => {
       // Evitar procesar múltiples veces
       if (processedTokensRef.current) return;
       
       const hash = window.location.hash;
-      if (!hash) return;
+      if (!hash) {
+        setProcessingTokens(false);
+        return;
+      }
       
       // Verificar si hay tokens de verificación
       // Los links de verificación contienen: #access_token=...&type=signup o type=email_change
       if (!hash.includes('access_token') && !hash.includes('type=')) {
+        setProcessingTokens(false);
         return;
       }
       
       processedTokensRef.current = true;
+      setProcessingTokens(true);
       logger.dev('📧 [Verificación Email] Detectados tokens en URL hash');
       
       try {
@@ -106,8 +119,19 @@ export default function RegisterPage() {
         // Manejar errores de Supabase
         if (errorParam) {
           logger.error('❌ [Verificación Email] Error de Supabase:', errorParam, errorDescription);
-          setError(`Error de verificación: ${errorDescription || errorParam}`);
+          // Si el error es de token expirado, mostrar mensaje amigable
+          if (errorDescription?.includes('expired') || errorParam === 'access_denied') {
+            setError('El enlace de verificación ha expirado. Por favor, solicita uno nuevo.');
+            setStep(1);
+          } else {
+            setError(`Error de verificación: ${errorDescription || errorParam}`);
+          }
           setLoading(false);
+          setProcessingTokens(false);
+          // Limpiar hash
+          if (window.history?.replaceState) {
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
           return;
         }
         
@@ -122,8 +146,14 @@ export default function RegisterPage() {
           
           if (sessionError) {
             logger.error('❌ [Verificación Email] Error estableciendo sesión:', sessionError);
-            setError('Error al verificar el email. Por favor, intenta de nuevo.');
+            setError('El enlace de verificación ha expirado o es inválido. Por favor, solicita uno nuevo.');
+            setStep(1);
             setLoading(false);
+            setProcessingTokens(false);
+            // Limpiar hash
+            if (window.history?.replaceState) {
+              window.history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
             return;
           }
           
@@ -134,7 +164,29 @@ export default function RegisterPage() {
           if (user?.email_confirmed_at) {
             logger.dev('✅ [Verificación Email] Email verificado correctamente:', user.email_confirmed_at);
             setUserCreated(user);
-            setForm(prev => ({ ...prev, email: user.email || prev.email }));
+            setForm(prev => ({ 
+              ...prev, 
+              email: user.email || prev.email,
+              nombre: user.user_metadata?.full_name || user.user_metadata?.name || prev.nombre
+            }));
+            
+            // 🔑 Verificar si ya tiene registro completo en la BD
+            const { data: userData } = await supabase
+              .from('usuarios')
+              .select('registro_completo, establecimiento, telefono')
+              .eq('auth_user_id', user.id)
+              .maybeSingle();
+            
+            if (userData?.registro_completo) {
+              logger.dev('✅ [Verificación Email] Usuario ya tiene registro completo, redirigiendo a home');
+              // Limpiar hash antes de redirigir
+              if (window.history?.replaceState) {
+                window.history.replaceState(null, '', window.location.pathname + window.location.search);
+              }
+              window.location.href = '/';
+              return;
+            }
+            
             setStep(4); // Ir al paso de completar perfil
           } else {
             logger.warn('⚠️ [Verificación Email] Email aún no verificado después de setSession');
@@ -146,6 +198,7 @@ export default function RegisterPage() {
               setStep(4);
             } else {
               setError('El email no se pudo verificar. Por favor, intenta de nuevo.');
+              setStep(1);
             }
           }
         }
@@ -161,6 +214,7 @@ export default function RegisterPage() {
         setError('Error al procesar la verificación: ' + err.message);
       } finally {
         setLoading(false);
+        setProcessingTokens(false);
       }
     };
     
@@ -181,11 +235,14 @@ export default function RegisterPage() {
   // 🔑 CRÍTICO: Si AuthContext ya sabe que el registro está completo, redirigir inmediatamente
   // Esto evita la race condition donde RegisterPage consulta la BD de forma independiente
   useEffect(() => {
+    // Esperar a que se procesen los tokens primero
+    if (processingTokens) return;
+    
     if (!authLoading && registroCompleto === true) {
       logger.dev('✅ [RegisterPage] AuthContext confirma registro completo, redirigiendo...');
       navigate('/', { replace: true });
     }
-  }, [authLoading, registroCompleto, navigate]);
+  }, [authLoading, registroCompleto, navigate, processingTokens]);
 
   // Estado para usuarios que vienen de Electron sin sesión
   const [needsReAuth, setNeedsReAuth] = useState(false);
@@ -195,6 +252,12 @@ export default function RegisterPage() {
   // ⚠️ IMPORTANTE: NO redirigir a / o /gestor aquí si el usuario tiene registro completo
   // La redirección la maneja el useEffect de registroCompleto para evitar race conditions
   useEffect(() => {
+    // 🔑 CRÍTICO: Esperar a que se procesen los tokens del hash primero
+    if (processingTokens) {
+      logger.dev('🔄 [RegisterPage] Esperando procesamiento de tokens...');
+      return;
+    }
+    
     // Si AuthContext ya confirmó registro completo, no hacer nada aquí
     // El useEffect de arriba se encargará de la redirección
     if (registroCompleto === true) {
@@ -292,7 +355,7 @@ export default function RegisterPage() {
     };
     
     checkSessionOnLoad();
-  }, [searchParams, navigate, registroCompleto, needsReAuth]);
+  }, [searchParams, navigate, registroCompleto, needsReAuth, processingTokens]);
 
 
   // 🌙 CRÍTICO: Forzar tema oscuro en la página de registro
@@ -345,33 +408,48 @@ export default function RegisterPage() {
     logger.dev('📧 [Verificación] Iniciando detección automática de verificación de email');
     
     // Helper para verificar y avanzar
-    // 🔑 CRÍTICO: Usar refreshSession() para obtener datos actualizados del servidor
-    // getUser() puede devolver datos cacheados del JWT
+    // 🔑 CRÍTICO: Usar múltiples estrategias para detectar la verificación
     const checkAndAdvance = async (source) => {
       try {
-        // Forzar refresh de la sesión para obtener datos actualizados del servidor
+        // Estrategia 1: Forzar refresh de la sesión
         const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
         
+        if (!refreshError && refreshData?.user?.email_confirmed_at) {
+          logger.dev(`✅ [Verificación] Email verificado via ${source} (refreshSession)`);
+          setUserCreated(refreshData.user);
+          setStep(4);
+          return true;
+        }
+        
+        // Estrategia 2: getUser si refreshSession falla
         if (refreshError) {
           logger.warn('⚠️ [Verificación] Error en refreshSession:', refreshError.message);
-          // Fallback a getUser si refreshSession falla
           const { data: { user } } = await supabase.auth.getUser();
           if (user?.email_confirmed_at) {
-            logger.dev(`✅ [Verificación] Email verificado via ${source} (fallback)`);
+            logger.dev(`✅ [Verificación] Email verificado via ${source} (getUser)`);
             setUserCreated(user);
             setStep(4);
             return true;
           }
-          return false;
         }
         
-        const user = refreshData?.user;
-        if (user?.email_confirmed_at) {
-          logger.dev(`✅ [Verificación] Email verificado via ${source}`);
-          setUserCreated(user);
-          setStep(4);
-          return true;
+        // 🔑 Estrategia 3: Si no hay sesión válida pero tenemos credenciales guardadas,
+        // intentar hacer login (el login funcionará si el email está verificado)
+        if (form.email && form.password) {
+          const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+            email: form.email,
+            password: form.password
+          });
+          
+          if (!loginError && loginData?.user?.email_confirmed_at) {
+            logger.dev(`✅ [Verificación] Email verificado via ${source} (login automático)`);
+            setUserCreated(loginData.user);
+            setStep(4);
+            return true;
+          }
         }
+        
+        return false;
       } catch (e) {
         logger.warn('⚠️ [Verificación] Error verificando estado:', e);
       }
@@ -383,6 +461,12 @@ export default function RegisterPage() {
       async (event, session) => {
         if (event === 'USER_UPDATED' && session?.user?.email_confirmed_at) {
           logger.dev('✅ [Verificación] Email verificado via onAuthStateChange');
+          setUserCreated(session.user);
+          setStep(4);
+        }
+        // También detectar SIGNED_IN por si el login automático funcionó
+        if (event === 'SIGNED_IN' && session?.user?.email_confirmed_at) {
+          logger.dev('✅ [Verificación] Email verificado via SIGNED_IN');
           setUserCreated(session.user);
           setStep(4);
         }
@@ -435,7 +519,8 @@ export default function RegisterPage() {
       window.removeEventListener('focus', handleFocus);
       if (capacitorAppListener) capacitorAppListener.remove();
     };
-  }, [step]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, form.email, form.password]);
 
   // Títulos por paso
   const stepTitles = [
@@ -675,9 +760,9 @@ export default function RegisterPage() {
       let user = null;
       let emailConfirmed = false;
       const email = form.email;
+      const password = form.password;
       
-      // Estrategia 1: Cerrar sesión actual y hacer una nueva con getUser()
-      // Esto fuerza al servidor a darnos los datos más recientes
+      // Estrategia 1: Forzando refresh de sesión
       logger.dev('🔄 [Verificación] Estrategia 1: Forzando refresh de sesión...');
       
       // Primero intentamos refreshSession que debería obtener un nuevo JWT
@@ -696,7 +781,7 @@ export default function RegisterPage() {
       }
       
       // Estrategia 2: getUser() hace llamada directa al servidor
-      if (!emailConfirmed) {
+      if (!emailConfirmed && !user) {
         logger.dev('🔄 [Verificación] Estrategia 2: getUser (llamada al servidor)...');
         const { data: userData, error: getUserError } = await supabase.auth.getUser();
         
@@ -713,22 +798,58 @@ export default function RegisterPage() {
         }
       }
       
-      // Estrategia 3: Si no tenemos sesión válida, necesitamos que el usuario
-      // haga sign in de nuevo después de verificar
-      if (!emailConfirmed && !user) {
-        logger.dev('🔄 [Verificación] Estrategia 3: No hay sesión, verificando estado en servidor...');
+      // 🔑 Estrategia 3: Si no tenemos sesión válida PERO tenemos email/password,
+      // intentar hacer login (el login funcionará si el email está verificado)
+      if (!emailConfirmed && !user && email && password) {
+        logger.dev('🔄 [Verificación] Estrategia 3: Intentando login con credenciales guardadas...');
         
-        // Intentar verificar el estado haciendo un intento de login
-        // Si el email no está verificado, Supabase rechazará el login
-        // Si está verificado, el login funcionará
-        setError('Tu sesión ha expirado. Por favor, inicia sesión de nuevo para continuar.');
-        setStep(1); // Volver al paso inicial
+        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
+        
+        if (!loginError && loginData?.user) {
+          user = loginData.user;
+          emailConfirmed = !!user.email_confirmed_at;
+          logger.dev('📧 [Verificación] Login exitoso:', {
+            email: user.email,
+            email_confirmed_at: user.email_confirmed_at,
+            emailConfirmed
+          });
+          
+          if (emailConfirmed) {
+            logger.dev('✅ [Verificación] Email verificado via login!');
+            setUserCreated(user);
+            setStep(4);
+            return;
+          }
+        } else {
+          // Si el login falla con "Email not confirmed", el email no está verificado aún
+          if (loginError?.message?.includes('Email not confirmed')) {
+            logger.dev('⚠️ [Verificación] Email aún no confirmado según Supabase');
+            setError(
+              'El correo aún no ha sido verificado. ' +
+              'Haz clic en el enlace del email que te enviamos y luego vuelve aquí.'
+            );
+            return;
+          }
+          logger.dev('⚠️ [Verificación] Login error:', loginError?.message);
+        }
+      }
+      
+      // 🔑 Estrategia 4: Si no hay sesión ni credenciales, mostrar mensaje más amigable
+      if (!emailConfirmed && !user) {
+        logger.dev('🔄 [Verificación] No hay sesión ni credenciales guardadas');
+        setError(
+          'Haz clic en el enlace de verificación del correo. ' +
+          'Cuando lo hagas, esta página se actualizará automáticamente.'
+        );
         return;
       }
       
-      // Estrategia 4: Esperar propagación y reintentar
+      // Estrategia 5: Esperar propagación y reintentar
       if (!emailConfirmed && user) {
-        logger.dev('🔄 [Verificación] Estrategia 4: Esperando 3s y reintentando...');
+        logger.dev('🔄 [Verificación] Estrategia 5: Esperando 3s y reintentando...');
         setError('Verificando... espera un momento.');
         
         await new Promise(resolve => setTimeout(resolve, 3000));
@@ -1769,24 +1890,30 @@ export default function RegisterPage() {
                   />
                 </div>
 
-                {/* Sector */}
-                <div className="space-y-2">
-                  <Label className="text-gray-300 text-sm font-medium">Sector *</Label>
-                  <select
-                    name="sectorId"
-                    value={form.sectorId}
-                    onChange={handleChange}
-                    className="w-full h-14 px-4 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all text-base"
-                    required
-                  >
-                    <option value="" className="bg-[#1a1e26]">Selecciona un sector...</option>
-                    {sectores.map((sector) => (
-                      <option key={sector.id} value={sector.id} className="bg-[#1a1e26]">
-                        {sector.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              {/* Sector */}
+              <div className="space-y-2">
+                <Label className="text-gray-300 text-sm font-medium">Sector *</Label>
+                <select
+                  name="sectorId"
+                  value={form.sectorId}
+                  onChange={handleChange}
+                  className="w-full h-14 px-4 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all text-base"
+                  required
+                >
+                  <option value="" className="bg-[#1a1e26]">Selecciona un sector...</option>
+                  {sectores.map((sector) => (
+                    <option key={sector.id} value={sector.id} className="bg-[#1a1e26]">
+                      {sector.nombre}{sector.descripcion ? ` (${sector.descripcion})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {/* Mostrar descripción del sector seleccionado */}
+                {form.sectorId && form.sectorId !== 'otro' && sectores.find(s => s.id === form.sectorId)?.descripcion && (
+                  <p className="text-xs text-gray-400 mt-1 px-1">
+                    Incluye: {sectores.find(s => s.id === form.sectorId)?.descripcion}
+                  </p>
+                )}
+              </div>
 
                 {/* Sector personalizado */}
                 {form.sectorId === 'otro' && (
@@ -1921,10 +2048,16 @@ export default function RegisterPage() {
                   <option value="" className="bg-[#1a1e26]">Selecciona un sector...</option>
                   {sectores.map((sector) => (
                     <option key={sector.id} value={sector.id} className="bg-[#1a1e26]">
-                      {sector.nombre}
+                      {sector.nombre}{sector.descripcion ? ` (${sector.descripcion})` : ''}
                     </option>
                   ))}
                 </select>
+                {/* Mostrar descripción del sector seleccionado */}
+                {form.sectorId && form.sectorId !== 'otro' && sectores.find(s => s.id === form.sectorId)?.descripcion && (
+                  <p className="text-xs text-gray-400 mt-1 px-1">
+                    Incluye: {sectores.find(s => s.id === form.sectorId)?.descripcion}
+                  </p>
+                )}
               </div>
 
               {/* Campo para sector personalizado si elige "Otro" */}

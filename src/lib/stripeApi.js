@@ -41,6 +41,14 @@ const EDGE_FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_URL + '/functions/v1'
 // Anon key para autenticar las llamadas a Edge Functions
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
+// Debug: verificar que las variables están configuradas
+if (!SUPABASE_ANON_KEY) {
+  console.error('⚠️ VITE_SUPABASE_ANON_KEY no está configurada')
+}
+if (!EDGE_FUNCTIONS_URL || EDGE_FUNCTIONS_URL === 'undefined/functions/v1') {
+  console.error('⚠️ VITE_SUPABASE_URL no está configurada correctamente')
+}
+
 // 🔧 TEST MODE: Price IDs de Stripe (entorno de pruebas)
 // ⚠️ Cambiar por Price IDs de producción antes de lanzar
 export const STRIPE_PRICES = {
@@ -103,10 +111,17 @@ export const stripeApi = {
   }) {
     try {
       logger.dev('💳 Creando sesión de checkout...', { price_id, plan_nombre })
+      
+      const headers = getHeaders(access_token)
+      logger.dev('📋 Headers de checkout:', { 
+        hasApiKey: !!headers.apikey,
+        hasAuth: !!headers.Authorization,
+        authType: headers.Authorization?.substring(0, 20) + '...'
+      })
 
       const response = await fetch(`${EDGE_FUNCTIONS_URL}/stripe-checkout`, {
         method: 'POST',
-        headers: getHeaders(access_token),
+        headers,
         body: JSON.stringify({
           auth_user_id,
           email,
@@ -120,9 +135,17 @@ export const stripeApi = {
         })
       })
 
+      logger.dev('📬 Respuesta de checkout:', { status: response.status, ok: response.ok })
+
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Error creando checkout')
+        const errorText = await response.text()
+        logger.error('❌ Error response body:', errorText)
+        try {
+          const errorData = JSON.parse(errorText)
+          throw new Error(errorData.error || `Error ${response.status} creando checkout`)
+        } catch (parseError) {
+          throw new Error(`Error ${response.status}: ${errorText}`)
+        }
       }
 
       const data = await response.json()

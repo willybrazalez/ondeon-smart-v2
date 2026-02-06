@@ -37,6 +37,7 @@ import GestorDashboard from './pages/gestor/GestorDashboard';
 // import OAuthCallbackPage from './pages/OAuthCallbackPage';
 // import OAuthResultPage from './pages/OAuthResultPage';
 import LoginPage from './pages/LoginPage';
+
 import { Button } from '@/components/ui/button';
 import DynamicBackground from '@/components/layout/DynamicBackground';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -428,7 +429,7 @@ function AppContent() {
   const { t } = useTranslation();
   
   const theme = 'dark'; // Tema oscuro único
-  const { user, loading: authLoading, userChannels, channelsLoading, signOut, ensureChannelsLoaded, loadUserActiveChannels, isManualPlaybackActive, manualPlaybackInfo, registroCompleto, canSelectChannels, shouldShowTrialBanner, isTrialActive, daysLeftInTrial, planTipo } = useAuth();
+  const { user, userData, loading: authLoading, userChannels, channelsLoading, signOut, ensureChannelsLoaded, loadUserActiveChannels, isManualPlaybackActive, manualPlaybackInfo, registroCompleto, canSelectChannels, shouldShowTrialBanner, isTrialActive, daysLeftInTrial, planTipo } = useAuth();
   const { roleName, hasPermission, uiConfig, userRole } = useRole();
   const navigate = useNavigate();
   
@@ -1299,7 +1300,7 @@ function AppContent() {
   const showNavigation = isFullyAuthenticated && !isAuthRoute && !isAdminRoute;
 
   return (
-    <div className={`relative min-h-screen text-foreground flex flex-col bg-background font-sans`}>
+    <div className={`relative h-screen overflow-hidden text-foreground flex flex-col bg-background font-sans`}>
       {/* 🎬 Splash Screen */}
       {showSplash && (
         <SplashScreen 
@@ -1315,7 +1316,7 @@ function AppContent() {
           theme={theme}
         />
       )}
-      <div className="relative z-10 flex flex-col flex-1">
+      <div className="relative z-10 flex flex-col flex-1 min-h-0 h-full">
         {/* 📱 Header - Versión móvil moderna optimizada para iOS */}
         {showHeader && showMobileUI && (
           <header className="fixed top-0 left-0 right-0 z-[60] safe-area-top bg-[#0a0e14]/95" style={{ transform: 'translateZ(0)' }}>
@@ -1340,7 +1341,7 @@ function AppContent() {
                 >
                   <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
                   <span className="text-xs text-white/90 font-medium truncate">
-                    {user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email?.split('@')[0] || t('common.user')}
+                    {userData?.establecimiento || user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email?.split('@')[0] || t('common.user')}
                   </span>
                   <ChevronRight size={14} className="text-white/40 flex-shrink-0" />
                 </Link>
@@ -1394,11 +1395,16 @@ function AppContent() {
                 />
                 <span className="text-2xl tracking-[0.2em] font-light text-[#A2D9F7] font-sans">SMART</span>
               </div>
-              <div className="flex items-center gap-2 sm:gap-4 px-2 py-1 rounded-2xl bg-black/10 dark:bg-white/10 border border-white/10 dark:border-white/10 ml-auto">
-                <span className="text-sm text-[#A2D9F7] flex items-center gap-2 px-2">
-                  {user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email || t('common.user')}
-                  <Circle size={8} className="fill-green-500 text-green-500" />
-                </span>
+              <div className="flex items-center gap-3 ml-auto">
+                {/* Banner de Trial */}
+                {shouldShowTrialBanner && <TrialBanner />}
+                
+                {/* Info usuario */}
+                <div className="flex items-center gap-2 sm:gap-4 px-2 py-1 rounded-2xl bg-black/10 dark:bg-white/10 border border-white/10 dark:border-white/10">
+                  <span className="text-sm text-[#A2D9F7] flex items-center gap-2 px-2">
+                    {userData?.establecimiento || user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email || t('common.user')}
+                    <Circle size={8} className="fill-green-500 text-green-500" />
+                  </span>
                 
                 {/* Dashboard con efecto rainbow - Para administradores (rol_id = 3) */}
                 <PermissionGated permissions={['showAdminPanelInSettings']}>
@@ -1422,22 +1428,16 @@ function AppContent() {
                 <Button variant="ghost" size="icon" className="text-foreground/60 hover:text-[#A2D9F7]" onClick={handleLogout} title={t('nav.logout')}>
                   <LogOut size={20} />
                 </Button>
+                </div>
               </div>
             </div>
           </header>
         )}
 
-        {/* ⏰ Banner de Trial - Solo para web desktop, NO para móvil iOS */}
-        {shouldShowTrialBanner && showHeader && !showMobileUI && (
-          <div className="pt-28">
-            <TrialBanner />
-          </div>
-        )}
-
         <div 
           ref={scrollContainerRef}
           data-scroll-container
-          className={`flex-1 relative overflow-y-auto overflow-x-hidden ${(isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? '' : showMobileUI ? '' : (shouldShowTrialBanner ? 'pt-16' : 'pt-28')} ${showMobileUI && showNavigation ? 'pb-28' : ''}`} 
+          className={`flex-1 min-h-0 relative overflow-y-auto overflow-x-hidden ${(isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? '' : showMobileUI ? '' : 'pt-28'} ${showMobileUI && showNavigation ? 'pb-28' : ''}`} 
           style={{ 
             overscrollBehavior: 'none',
             paddingTop: (isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? 0 : showMobileUI ? 'calc(env(safe-area-inset-top, 0px) + 56px)' : undefined
@@ -1589,12 +1589,21 @@ function AppContent() {
 
         {/* 🖥️ Navegación inferior DESKTOP - Botones flotantes */}
         {isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && !showMobileUI && (
-          <div className="fixed bottom-20 left-1/2 -translate-x-1/2 flex justify-center gap-12 z-50">
+          <div 
+            className={`fixed bottom-20 left-1/2 -translate-x-1/2 flex justify-center z-50 transition-all duration-300
+              ${currentPath === '/' 
+                ? 'gap-12' 
+                : 'gap-4 px-6 py-3 rounded-2xl border border-white/10 backdrop-blur-xl'}`}
+            style={currentPath !== '/' ? { 
+              backgroundColor: 'rgba(10, 14, 20, 0.85)',
+              boxShadow: '0 4px 30px rgba(0,0,0,0.5)'
+            } : undefined}
+          >
             <AnimatePresence>
               {getNavItemsForRole(hasPermission, t).map((item, index) => (
                 <motion.div 
                   key={item.path} 
-                  className="group relative animate-float"
+                  className={`group relative ${currentPath === '/' ? 'animate-float' : ''}`}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ 
@@ -1608,20 +1617,24 @@ function AppContent() {
                     to={item.path}
                     className={`flex flex-col items-center justify-center rounded-2xl transition-all duration-300 overflow-hidden p-3
                       ${currentPath === item.path 
-                        ? 'bg-white/10 text-white scale-105' 
-                        : 'bg-black/3 dark:bg-white/3 text-black/90 dark:text-white/90 hover:bg-black/5 dark:hover:bg-white/5 hover:scale-105'}`}
+                        ? currentPath === '/' 
+                          ? 'bg-white/10 text-white scale-105' 
+                          : 'bg-white/15 text-[#A2D9F7]'
+                        : currentPath === '/'
+                          ? 'bg-black/3 dark:bg-white/3 text-black/90 dark:text-white/90 hover:bg-black/5 dark:hover:bg-white/5 hover:scale-105'
+                          : 'text-white/60 hover:bg-white/10 hover:text-white'}`}
                     style={{
-                      minHeight: '64px',
-                      minWidth: '72px',
+                      minHeight: currentPath === '/' ? '64px' : '56px',
+                      minWidth: currentPath === '/' ? '72px' : '64px',
                     }}
                   >
                     <motion.div
                       className="flex flex-col items-center justify-center gap-1 w-full"
-                      whileHover={{ scale: 1.1 }}
+                      whileHover={{ scale: currentPath === '/' ? 1.1 : 1.05 }}
                       transition={{ type: "spring", stiffness: 400, damping: 10 }}
                     >
-                      <item.icon className="w-6 h-6 flex-shrink-0" />
-                      <span className="text-xs font-medium text-center leading-tight">
+                      <item.icon className={currentPath === '/' ? 'w-6 h-6 flex-shrink-0' : 'w-5 h-5 flex-shrink-0'} />
+                      <span className={currentPath === '/' ? 'text-xs font-medium text-center leading-tight' : 'text-[10px] font-medium text-center leading-tight'}>
                         {item.label}
                       </span>
                     </motion.div>
