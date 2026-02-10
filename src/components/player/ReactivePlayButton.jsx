@@ -397,27 +397,35 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
         style={{ opacity: (isPlaying || isManualPlaybackActive) ? 1 : 0, transition: 'opacity 0.3s ease' }}
       />
 
-      {/* Anillos decorativos externos */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-        {/* Anillo exterior pulsante */}
-        <motion.div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 md:w-28 md:h-28 rounded-full border border-white/[0.08]"
-          animate={(isPlaying || isManualPlaybackActive) ? {
-            scale: [1, 1.1, 1],
-            opacity: [0.3, 0.6, 0.3],
-          } : {}}
-          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-        />
-        {/* Anillo medio */}
-        <motion.div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 md:w-24 md:h-24 rounded-full border border-[#A2D9F7]/10"
-          animate={(isPlaying || isManualPlaybackActive) ? {
-            scale: [1, 1.05, 1],
-            opacity: [0.2, 0.4, 0.2],
-          } : {}}
-          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
-        />
-      </div>
+      {/* Anillos decorativos externos - posicionados con dimensiones explícitas para evitar recorte */}
+      {/* Anillo exterior pulsante */}
+      <motion.div
+        className="absolute rounded-full border border-white/[0.06] pointer-events-none"
+        style={{
+          width: '128px', height: '128px',
+          top: '50%', left: '50%',
+          marginTop: '-64px', marginLeft: '-64px'
+        }}
+        animate={(isPlaying || isManualPlaybackActive) ? {
+          scale: [1, 1.08, 1],
+          opacity: [0.2, 0.5, 0.2],
+        } : { scale: 1, opacity: 0.15 }}
+        transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+      />
+      {/* Anillo medio */}
+      <motion.div
+        className="absolute rounded-full border border-[#A2D9F7]/8 pointer-events-none"
+        style={{
+          width: '112px', height: '112px',
+          top: '50%', left: '50%',
+          marginTop: '-56px', marginLeft: '-56px'
+        }}
+        animate={(isPlaying || isManualPlaybackActive) ? {
+          scale: [1, 1.04, 1],
+          opacity: [0.15, 0.35, 0.15],
+        } : { scale: 1, opacity: 0.1 }}
+        transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
+      />
 
       {/* Botón central - Diseño moderno glassmorphism */}
       <motion.button
@@ -425,13 +433,15 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
         disabled={disabled}
         title={blockMessage || ((isPlaying || isManualPlaybackActive) ? 'Pausar' : 'Reproducir')}
         className={`relative w-24 h-24 md:w-20 md:h-20 rounded-full flex items-center justify-center z-10
-          bg-white/[0.08] border border-white/[0.12] backdrop-blur-2xl
+          bg-white/[0.08] border border-white/[0.12]
           ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
           transition-all duration-300`}
         style={{
+          backdropFilter: 'blur(40px)',
+          WebkitBackdropFilter: 'blur(40px)',
           boxShadow: (isPlaying || isManualPlaybackActive) 
-            ? '0 0 60px rgba(162, 217, 247, 0.3), 0 0 100px rgba(162, 217, 247, 0.15), inset 0 0 30px rgba(162, 217, 247, 0.1)' 
-            : '0 0 40px rgba(162, 217, 247, 0.15), inset 0 0 20px rgba(255, 255, 255, 0.05)'
+            ? '0 0 40px rgba(162, 217, 247, 0.25), 0 0 80px rgba(162, 217, 247, 0.1), inset 0 0 20px rgba(162, 217, 247, 0.08)' 
+            : '0 0 30px rgba(162, 217, 247, 0.12), inset 0 0 15px rgba(255, 255, 255, 0.04)'
         }}
         whileHover={!disabled ? { scale: 1.08 } : {}}
         whileTap={!disabled ? { scale: 0.95 } : {}}

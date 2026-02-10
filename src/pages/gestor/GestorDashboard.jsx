@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   User,
@@ -17,7 +18,9 @@ import {
   ExternalLink,
   X,
   Building,
+  Building2,
   Globe,
+  Shield,
   Edit2,
   Save,
   Loader2,
@@ -25,6 +28,7 @@ import {
   Eye,
   EyeOff,
   ChevronDown,
+  ChevronLeft,
   Circle,
   Receipt,
   RefreshCw,
@@ -32,11 +36,13 @@ import {
   Wallet,
   Home,
   Check,
-  Crown
+  Crown,
+  Award
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useRole } from '@/hooks/useRole';
 import { useSubscription, SUBSCRIPTION_STATUS } from '@/hooks/useSubscription';
 import { stripeApi, STRIPE_PRICES } from '@/lib/stripeApi';
 import { supabase } from '@/lib/supabase';
@@ -101,12 +107,15 @@ const Modal = ({ isOpen, onClose, title, children }) => {
 };
 
 /**
- * Dashboard principal para usuarios Gestores (rol_id = 2)
+ * Dashboard principal para usuarios Gestores (rol_id = 2).
+ * En móvil puede usarse con forceMobileLayout para la ruta /cuenta (diseño combinado).
  */
-const GestorDashboard = () => {
+const GestorDashboard = ({ forceMobileLayout = false } = {}) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { t } = useTranslation();
   const { user, signOut, loadUserProfile, updateUserProfile, isTrialActive, daysLeftInTrial, planTipo, isOAuthUser, authProvider } = useAuth();
+  const { roleName } = useRole();
   const { 
     subscription, 
     loading,
@@ -572,9 +581,65 @@ const GestorDashboard = () => {
       title: 'Soporte',
       icon: HelpCircle,
     },
+    {
+      id: 'certificado',
+      title: 'Mi\ncertificado',
+      icon: Award,
+    },
   ];
 
+  // Establecimiento para layout móvil (cuenta)
+  const displayEstablecimiento = profileData?.establecimiento || user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || 'Usuario';
+  const displayEmailMobile = user?.email || profileData?.email || '';
+
+  // Layout móvil unificado (ruta /cuenta): solo cards de gestión + logout
+  const mobileLayout = (
+    <div className="pb-24 px-4 min-h-screen bg-[#0a0e14]">
+        {/* Header con botón atrás */}
+        <div className="flex items-center gap-3 mb-6 mt-2">
+          <button
+            onClick={() => navigate(-1)}
+            className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.1] transition-all"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <h1 className="text-xl font-semibold text-white">{t('account.title', 'Mi Cuenta')}</h1>
+        </div>
+
+        {/* Solo cards de gestión (Mis datos, Suscripción, etc.) */}
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          {cards.map((card, index) => (
+            <motion.button
+              key={card.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05, duration: 0.3 }}
+              onClick={() => card.id === 'datos' ? handleOpenDatosModal() : setActiveModal(card.id)}
+              className="group flex items-center gap-3 p-4 rounded-2xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] transition-all text-left"
+            >
+              <div className="w-10 h-10 rounded-xl bg-[#A2D9F7]/20 flex items-center justify-center flex-shrink-0">
+                <card.icon size={20} className="text-[#A2D9F7]" />
+              </div>
+              <span className="text-sm font-medium text-white whitespace-pre-line leading-tight">{card.title}</span>
+            </motion.button>
+          ))}
+        </div>
+
+        {/* Cerrar sesión */}
+        <Button
+          onClick={handleLogout}
+          variant="ghost"
+          className="w-full h-14 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-all"
+        >
+          <LogOut size={20} className="mr-3" />
+          {t('account.logout', 'Cerrar Sesión')}
+        </Button>
+      </div>
+  );
+
   return (
+    <>
+    {forceMobileLayout ? mobileLayout : (
     <div className="min-h-screen bg-[#0a0e14] relative overflow-hidden pb-24 md:pb-8">
       {/* Efecto de fondo - Foco azul */}
       <div 
@@ -664,7 +729,7 @@ const GestorDashboard = () => {
 
         {/* Cards Grid - Optimizado para móvil */}
         <section className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5 md:gap-6">
             {cards.map((card, index) => (
               <motion.button
                 key={card.id}
@@ -691,6 +756,8 @@ const GestorDashboard = () => {
           </div>
         </section>
       </main>
+    </div>
+    )}
 
       {/* Modal: Mis Datos */}
       <Modal
@@ -1307,6 +1374,31 @@ const GestorDashboard = () => {
         </div>
       </Modal>
 
+      {/* Modal: Mi certificado */}
+      <Modal
+        isOpen={activeModal === 'certificado'}
+        onClose={() => setActiveModal(null)}
+        title="Mi certificado"
+      >
+        <div className="space-y-6">
+          <p className="text-white/60">
+            Aquí podrás descargar o consultar tu certificado de suscripción activa cuando esté disponible.
+          </p>
+          <div className="flex items-center gap-4 p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+            <div className="w-12 h-12 rounded-full bg-[#A2D9F7]/10 flex items-center justify-center">
+              <Award className="w-6 h-6 text-[#A2D9F7]" />
+            </div>
+            <div>
+              <p className="text-white/90 font-medium">Certificado de suscripción</p>
+              <p className="text-sm text-white/40">Disponible para planes activos</p>
+            </div>
+          </div>
+          <p className="text-sm text-white/40 text-center">
+            Si necesitas un certificado oficial, contacta con soporte@ondeon.es
+          </p>
+        </div>
+      </Modal>
+
       {/* Modal: Planes - Versión ampliada */}
       <AnimatePresence>
         {activeModal === 'planes' && (
@@ -1521,7 +1613,7 @@ const GestorDashboard = () => {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </>
   );
 };
 

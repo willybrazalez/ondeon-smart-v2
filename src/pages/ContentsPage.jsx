@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -481,6 +481,23 @@ const ContentsPage = () => {
     }),
   };
 
+  // Reenviar scroll de rueda al contenedor principal cuando el cursor está sobre las cards
+  // (evita que motion/Radix intercepten y bloqueen el scroll; requiere passive: false)
+  const pageContentRef = useRef(null);
+  useEffect(() => {
+    const el = pageContentRef.current;
+    if (!el) return;
+    const handleWheel = (e) => {
+      const scrollContainer = document.querySelector('[data-scroll-container]');
+      if (scrollContainer && e.deltaY !== 0) {
+        scrollContainer.scrollTop += e.deltaY;
+        e.preventDefault();
+      }
+    };
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, []);
+
   // Guard: Mostrar loading mientras se determina el rol del usuario
   logger.dev('🔍 ContentsPage - userRole:', userRole);
   
@@ -506,7 +523,7 @@ const ContentsPage = () => {
   }
 
   return (
-    <div className="p-4 sm:p-6 md:p-8 pb-24">
+    <div ref={pageContentRef} className="p-4 sm:p-6 md:p-8 pb-24">
       <div className="text-center mb-8 sm:mb-10">
         <h1 className="text-3xl sm:text-4xl md:text-5xl font-sans font-bold text-black dark:text-transparent dark:bg-clip-text dark:bg-gradient-to-r dark:from-primary/90 dark:via-[#A2D9F7]/80 dark:to-accent/90">
           Gestor de Contenidos

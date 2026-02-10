@@ -157,3 +157,4 @@ ios/DerivedData/
 # Excepciones - Archivos iOS necesarios para Universal Links y entitlements
 !ios/App/App/App.entitlements
 !ios/App/App.xcodeproj/project.pbxproj
+.vercel

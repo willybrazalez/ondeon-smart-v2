@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { 
@@ -22,7 +23,8 @@ import {
   ExternalLink,
   User,
   Clock,
-  Crown
+  Crown,
+  SkipForward
 } from 'lucide-react';
 import { Toaster } from './components/ui/toaster';
 import PlayerPage from '@/pages/PlayerPage';
@@ -60,6 +62,7 @@ import { PlayerProvider } from '@/contexts/PlayerContext';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import MobileLayout from '@/layouts/MobileLayout';
 import BottomNavigation from '@/components/mobile/BottomNavigation';
+import MiniPlayer from '@/components/mobile/MiniPlayer';
 import TrialBanner from '@/components/trial/TrialBanner';
 import UpgradePromptMobile from '@/components/mobile/UpgradePromptMobile';
 
@@ -1318,58 +1321,61 @@ function AppContent() {
       )}
       <div className="relative z-10 flex flex-col flex-1 min-h-0 h-full">
         {/* 📱 Header - Versión móvil moderna optimizada para iOS */}
-        {showHeader && showMobileUI && (
-          <header className="fixed top-0 left-0 right-0 z-[60] safe-area-top bg-[#0a0e14]/95" style={{ transform: 'translateZ(0)' }}>
-            <div className="px-4 py-3 space-y-2">
-              {/* Fila superior: Logo + SMART | Nombre establecimiento */}
-              <div className="flex items-center justify-between">
-                {/* Logo grande + Smart */}
-                <div className="flex items-center gap-2">
-                  <img
-                    src="/assets/icono-ondeon.png"
-                    alt="Ondeón Smart"
-                    className="h-10 w-10"
-                    onError={(e) => { e.target.style.display = 'none'; }}
-                  />
-                  <span className="text-sm tracking-[0.2em] font-light text-[#A2D9F7]">SMART</span>
-                </div>
-                
-                {/* Nombre establecimiento con acceso a cuenta */}
-                <Link 
-                  to="/cuenta"
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.08] max-w-[200px]"
-                >
-                  <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
-                  <span className="text-xs text-white/90 font-medium truncate">
-                    {userData?.establecimiento || user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email?.split('@')[0] || t('common.user')}
-                  </span>
-                  <ChevronRight size={14} className="text-white/40 flex-shrink-0" />
-                </Link>
+        {/* 📱 Header móvil - Página reproductor: logo + SMART + nombre establecimiento (acceso a /cuenta) */}
+        {showHeader && showMobileUI && currentPath === '/' && (
+          <header className="fixed top-0 left-0 right-0 z-[60] safe-area-top h-14 flex items-center justify-between px-4 border-b border-white/5 bg-[#0a0e14]/80 backdrop-blur-sm" style={{ transform: 'translateZ(0)' }}>
+            <div className="flex items-center gap-3">
+              <img
+                src="/assets/icono-ondeon.png"
+                alt="Ondeón Smart"
+                className="h-10 w-10 flex-shrink-0"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+              <span className="text-base tracking-[0.2em] font-light text-[#A2D9F7]">SMART</span>
+            </div>
+            <Link
+              to="/cuenta"
+              className="flex items-center gap-2 min-w-0 max-w-[60%] py-2 px-3 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white/90 font-medium text-sm truncate active:bg-white/[0.12]"
+            >
+              <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+              <span className="truncate">
+                {userData?.establecimiento || user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email?.split('@')[0] || t('common.user')}
+              </span>
+              <ChevronRight size={14} className="text-white/40 flex-shrink-0" />
+            </Link>
+          </header>
+        )}
+        {/* 📱 Header móvil - Resto de páginas: logo + SMART + establecimiento + trial (más tamaño) */}
+        {showHeader && showMobileUI && currentPath !== '/' && (
+          <header className="fixed top-0 left-0 right-0 z-[60] safe-area-top h-16 flex items-center px-4 border-b border-white/5 bg-[#0a0e14]/80 backdrop-blur-sm" style={{ transform: 'translateZ(0)' }}>
+            <div className="flex items-center justify-between w-full gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <img
+                  src="/assets/icono-ondeon.png"
+                  alt="Ondeón Smart"
+                  className="h-10 w-10 flex-shrink-0"
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+                <span className="text-base tracking-[0.2em] font-light text-[#A2D9F7] truncate">SMART</span>
               </div>
-              
-              {/* Fila inferior: Indicadores de trial */}
+              <Link
+                to="/cuenta"
+                className="flex items-center gap-2 min-w-0 max-w-[55%] py-2 px-3 rounded-xl bg-white/[0.06] border border-white/[0.08]"
+              >
+                <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+                <span className="text-sm text-white/90 font-medium truncate">
+                  {userData?.establecimiento || user?.user_metadata?.establecimiento || user?.establecimiento || user?.user_metadata?.username || user?.username || user?.nombre_usuario || user?.email?.split('@')[0] || t('common.user')}
+                </span>
+                <ChevronRight size={14} className="text-white/40 flex-shrink-0" />
+              </Link>
               {shouldShowTrialBanner && (
-                <div className="flex items-center justify-end gap-2">
-                  {/* Indicador de días de trial */}
-                  {isTrialActive && (
-                    <button 
-                      onClick={() => setShowUpgradePrompt(true)}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/10 border border-white/10"
-                    >
-                      <Clock className="w-3.5 h-3.5 text-[#A2D9F7]" />
-                      <span className="text-xs font-semibold text-white">{daysLeftInTrial}d</span>
-                    </button>
-                  )}
-                  
-                  {/* Botón Ver planes */}
-                  <button
-                    onClick={() => setShowUpgradePrompt(true)}
-                    className="px-3 py-1.5 text-xs font-semibold bg-[#A2D9F7] text-[#0a0e14] rounded-lg"
-                  >
-                    <Crown className="w-3.5 h-3.5 inline mr-1" />
-                    Ver planes
-                  </button>
-                </div>
+                <button
+                  onClick={() => setShowUpgradePrompt(true)}
+                  className="flex-shrink-0 p-2 rounded-lg text-[#A2D9F7]"
+                  title="Ver planes"
+                >
+                  <Crown className="w-5 h-5" />
+                </button>
               )}
             </div>
           </header>
@@ -1419,7 +1425,7 @@ function AppContent() {
                 </PermissionGated>
                 
                 {/* Acceso a Mi Cuenta / Dashboard */}
-                <Link to="/gestor" title={t('nav.myAccount', 'Mi cuenta')}>
+                <Link to={showMobileUI ? '/cuenta' : '/gestor'} title={t('nav.myAccount', 'Mi cuenta')}>
                   <Button variant="ghost" size="icon" className="text-foreground/60 hover:text-[#A2D9F7]">
                     <User size={20} />
                   </Button>
@@ -1437,10 +1443,10 @@ function AppContent() {
         <div 
           ref={scrollContainerRef}
           data-scroll-container
-          className={`flex-1 min-h-0 relative overflow-y-auto overflow-x-hidden ${(isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? '' : showMobileUI ? '' : 'pt-28'} ${showMobileUI && showNavigation ? 'pb-28' : ''}`} 
+          className={`flex-1 min-h-0 relative overflow-y-auto overflow-x-hidden ${(isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? '' : showMobileUI ? '' : 'pt-28'} ${showMobileUI && showNavigation ? (currentChannel ? 'pb-40' : 'pb-28') : ''}`} 
           style={{ 
             overscrollBehavior: 'none',
-            paddingTop: (isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? 0 : showMobileUI ? 'calc(env(safe-area-inset-top, 0px) + 56px)' : undefined
+            paddingTop: (isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? 0 : showMobileUI ? `calc(env(safe-area-inset-top, 0px) + ${currentPath === '/' ? 60 : 72}px)` : undefined
           }}
         >
           <main className={`${(isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) 
@@ -1466,8 +1472,8 @@ function AppContent() {
                   <Route path="/contenidos" element={<ContentsPage />} />
                   <Route path="/anuncio-nuevo" element={<NewAdPage />} />
                   <Route path="/historial-anuncios" element={<AdHistoryPage />} />
-                  <Route path="/cuenta" element={<AccountPage />} />
-                  <Route path="/gestor" element={<GestorDashboard />} />
+                  <Route path="/cuenta" element={showMobileUI ? <GestorDashboard forceMobileLayout /> : <AccountPage />} />
+                  <Route path="/gestor" element={showMobileUI ? <Navigate to="/cuenta" replace /> : <GestorDashboard />} />
                   <Route path="/registro" element={<RegisterPage />} />
                   
                   {/* Redirigir /login a home si ya está completamente autenticado */}
@@ -1553,22 +1559,54 @@ function AppContent() {
                 }
               `}</style>
 
-              <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
-                {/* Botón reactivo con ondas y anillo visualizador de audio */}
-                <ReactivePlayButton
-                  isPlaying={optimisticPlayState === 'playing' || (optimisticPlayState === null && (djState?.isPlaying || wasPlayingBeforeChange))}
-                  onPlayPause={handlePlayPause}
-                  disabled={!djIsReady || isManualPlaybackActive}
-                  bpm={djState?.currentSong?.bpm}
-                  audioElement={audioElement}
-                  currentTrack={djState?.currentSong?.title || djState?.currentSong?.id}
-                  blockMessage={isManualPlaybackActive ? `${t('player.manualPlayback')}: ${manualPlaybackInfo?.contentName || t('player.content')}` : undefined}
-                  isManualPlaybackActive={isManualPlaybackActive}
-                />
-              </div>
             </>
           )}
         </div>
+
+        {/* 🎵 Play button + Skip - Renderizado en portal para evitar recorte por overflow-hidden del root */}
+        {currentPath === '/' && isFullyAuthenticated && !channelsLoading && !isAuthRoute && !isAdminRoute && typeof document !== 'undefined' && createPortal(
+          <>
+            <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-auto" style={{ overflow: 'visible' }}>
+              <ReactivePlayButton
+                isPlaying={optimisticPlayState === 'playing' || (optimisticPlayState === null && (djState?.isPlaying || wasPlayingBeforeChange))}
+                onPlayPause={handlePlayPause}
+                disabled={!djIsReady || isManualPlaybackActive}
+                bpm={djState?.currentSong?.bpm}
+                audioElement={audioElement}
+                currentTrack={djState?.currentSong?.title || djState?.currentSong?.id}
+                blockMessage={isManualPlaybackActive ? `${t('player.manualPlayback')}: ${manualPlaybackInfo?.contentName || t('player.content')}` : undefined}
+                isManualPlaybackActive={isManualPlaybackActive}
+              />
+            </div>
+
+            {/* ⏭️ Botón siguiente canción - Wrapper fijo para que el hover no desplace el centro */}
+            <div
+              className="hidden md:flex fixed z-20 items-center justify-center"
+              style={{ top: '50%', left: 'calc(50% + 115px)', transform: 'translateY(-50%)', width: 40, height: 40 }}
+            >
+              <motion.button
+                onClick={() => nextTrack()}
+                disabled={!djIsReady || isManualPlaybackActive || !djState?.currentSong}
+                className="w-10 h-10 rounded-full flex items-center justify-center
+                  bg-white/[0.05] border border-white/[0.06]
+                  hover:bg-white/[0.10] hover:border-white/[0.12]
+                  active:bg-white/[0.14]
+                  disabled:opacity-25 disabled:cursor-not-allowed
+                  transition-colors duration-200"
+                whileHover={!isManualPlaybackActive ? { scale: 1.12 } : {}}
+                whileTap={!isManualPlaybackActive ? { scale: 0.88 } : {}}
+                title="Siguiente canción"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.25 }}
+                style={{ flexShrink: 0 }}
+              >
+                <SkipForward size={16} className="text-white/50" />
+              </motion.button>
+            </div>
+          </>,
+          document.body
+        )}
 
         {/* Footer translúcido para evitar superposición (solo con usuario COMPLETAMENTE autenticado, fuera de admin y fuera de dashboards web) */}
         {isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && !showMobileUI && (
@@ -1580,6 +1618,34 @@ function AppContent() {
               </p>
             </div>
           </footer>
+        )}
+
+        {/* 📱 MiniPlayer flotante - En móvil en todas las páginas; en web solo fuera de la página reproductor */}
+        {showNavigation && isFullyAuthenticated && !isWebDashboardRoute && (showMobileUI || currentPath !== '/') && (
+          <MiniPlayer
+            isPlaying={optimisticPlayState === 'playing' || (optimisticPlayState === null && (djState?.isPlaying || wasPlayingBeforeChange))}
+            onPlayPause={handlePlayPause}
+            onSkipNext={() => nextTrack()}
+            trackTitle={currentTrackInfo?.title || ''}
+            trackArtist={currentTrackInfo?.artist || ''}
+            disabled={!djIsReady || isManualPlaybackActive}
+            isVisible={!!currentChannel}
+            musicVolume={musicVolume}
+            contentVolume={contentVolume}
+            onMusicVolumeChange={(v) => {
+              setMusicVolume(v);
+              import('./services/audioPlayerService').then(({ default: audioPlayer }) => {
+                audioPlayer.setMusicVolume(v / 100);
+              });
+            }}
+            onContentVolumeChange={(v) => {
+              setContentVolume(v);
+              import('./services/audioPlayerService').then(({ default: audioPlayer }) => {
+                audioPlayer.setContentVolume(v / 100);
+              });
+            }}
+            isMobile={showMobileUI}
+          />
         )}
 
         {/* 📱 Navegación inferior MÓVIL - Nuevo diseño tipo app */}

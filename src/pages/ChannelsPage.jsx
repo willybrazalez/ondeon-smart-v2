@@ -246,17 +246,17 @@ const ChannelRow = ({ title, channels, selectedChannel, onChannelSelect, isManua
   if (!channels || channels.length === 0) return null;
 
   return (
-    <div className="mb-8 relative group">
+    <div className="mb-6 md:mb-8 relative group">
       {/* Header de la sección */}
-      <div className="flex items-center justify-between mb-4 px-4 md:px-6">
-        <h2 className="text-base md:text-lg font-semibold text-white/80">{title}</h2>
+      <div className="flex items-center justify-between mb-3 md:mb-4 md:px-6">
+        <h2 className="text-sm md:text-lg font-semibold text-white/90">{title}</h2>
       </div>
 
-      {/* Flecha izquierda */}
+      {/* Flecha izquierda - fija en la sección, siempre visible */}
       {canScrollLeft && (
         <button
           onClick={() => scrollHorizontal('left')}
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-black/70 hover:bg-black/90 flex items-center justify-center shadow-lg transition-all opacity-0 group-hover:opacity-100 ml-1"
+          className="absolute left-2 md:left-1 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/70 hover:bg-black/90 flex items-center justify-center shadow-lg transition-all"
           aria-label="Anterior"
         >
           <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -265,11 +265,11 @@ const ChannelRow = ({ title, channels, selectedChannel, onChannelSelect, isManua
         </button>
       )}
 
-      {/* Flecha derecha */}
+      {/* Flecha derecha - fija en la sección, siempre visible */}
       {canScrollRight && (
         <button
           onClick={() => scrollHorizontal('right')}
-          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-black/70 hover:bg-black/90 flex items-center justify-center shadow-lg transition-all opacity-0 group-hover:opacity-100 mr-1"
+          className="absolute right-2 md:right-1 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-black/70 hover:bg-black/90 flex items-center justify-center shadow-lg transition-all"
           aria-label="Siguiente"
         >
           <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -281,7 +281,7 @@ const ChannelRow = ({ title, channels, selectedChannel, onChannelSelect, isManua
       {/* Contenedor con scroll horizontal táctil */}
       <div 
         ref={scrollRef}
-        className="flex gap-3 md:gap-4 overflow-x-auto scrollbar-hide px-4 md:px-6 pb-2 snap-x snap-mandatory touch-pan-x"
+        className="flex gap-4 overflow-x-auto scrollbar-hide md:px-6 pb-2 snap-x snap-mandatory touch-pan-x"
         style={{ 
           scrollbarWidth: 'none', 
           msOverflowStyle: 'none',
@@ -402,12 +402,12 @@ const ChannelCard = ({ channel, index, isSelected, onSelect, isManualPlaybackAct
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ delay: index * 0.03, duration: 0.2 }}
-      className={`flex-shrink-0 w-[150px] md:w-[190px] lg:w-[210px] snap-start ${isManualPlaybackActive ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer group'}`}
+      className={`flex-shrink-0 w-[42vw] max-w-[180px] min-w-[140px] sm:w-[175px] md:w-[190px] lg:w-[210px] snap-start ${isManualPlaybackActive ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer group'}`}
       onClick={handleClick}
     >
       {/* Imagen - Proporción 4:5 con bordes rectos */}
       <div 
-        className="relative aspect-[4/5] rounded-sm overflow-hidden mb-2 transition-all duration-200 group-hover:scale-[1.02] active:scale-[0.98]"
+        className="relative aspect-[3/4] sm:aspect-[4/5] rounded-xl overflow-hidden mb-2 transition-all duration-200 group-hover:scale-[1.02] active:scale-[0.98]"
       >
         {channel.imagen_url ? (
           <img 
@@ -469,13 +469,13 @@ const ChannelCard = ({ channel, index, isSelected, onSelect, isManualPlaybackAct
         )}
       </div>
 
-      {/* Título - Intensidad reducida */}
-      <h3 className="text-[13px] md:text-sm font-medium text-white/80 leading-tight">
+      {/* Título */}
+      <h3 className="text-[13px] sm:text-sm font-medium text-white/90 leading-tight line-clamp-1">
         {channel.nombre}
       </h3>
       
-      {/* Descripción - Intensidad reducida */}
-      <p className="text-[11px] md:text-xs text-white/40 line-clamp-2 leading-snug mt-0.5">
+      {/* Descripción */}
+      <p className="text-[11px] sm:text-xs text-white/50 line-clamp-2 leading-snug mt-0.5">
         {getChannelDescription(channel.nombre, channel.descripcion)}
       </p>
     </motion.div>
@@ -572,7 +572,30 @@ const ChannelsPage = ({ setCurrentChannel, currentChannel, isPlaying, togglePlay
   };
 
   return (
-    <div className="w-full pb-8">
+    <div className="w-full pb-8 px-6 md:px-0">
+      {/* Título visible en mobile */}
+      <div className="md:hidden pt-2 pb-4">
+        <motion.h1
+          className="text-xl font-bold text-white/90"
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          Canales
+        </motion.h1>
+        <motion.p
+          className="text-sm text-white/50 mt-0.5"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.1 }}
+        >
+          {userData?.establecimiento
+            ? `Para ${userData.establecimiento}`
+            : 'Selecciona tu ambiente musical'
+          }
+        </motion.p>
+      </div>
+
       {/* Header principal - Solo visible en desktop */}
       <div className="hidden md:block px-6 mb-10 pt-6">
         <motion.h1 
@@ -613,8 +636,8 @@ const ChannelsPage = ({ setCurrentChannel, currentChannel, isPlaying, togglePlay
         </motion.p>
       </div>
       
-      {/* Espaciado en mobile */}
-      <div className="md:hidden h-6" />
+      {/* Espaciado en desktop tras header */}
+      <div className="hidden md:block h-0" />
 
       {/* Loading state */}
       {loading && sectionsToDisplay.length === 0 && (
