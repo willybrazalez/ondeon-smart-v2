@@ -162,11 +162,7 @@ const NewAdPage = () => {
   const { toast } = useToast();
   const adTextRef = useRef(null);
 
-  // Guard: Crear anuncios con IA solo para plan Pro
-  if (!canCreateAds) {
-    return <SubscriptionGate />;
-  }
-
+  // 🔧 CRÍTICO: Todos los hooks deben ejecutarse ANTES de cualquier early return
   const nextStep = useCallback(() => setCurrentStep(prev => Math.min(prev + 1, STEPS_CONFIG.length)), []);
   const prevStep = useCallback(() => setCurrentStep(prev => Math.max(prev - 1, 1)), []);
 
@@ -230,6 +226,11 @@ const NewAdPage = () => {
     setSelectedGroup(AD_GROUPS[0]);
     setCurrentStep(1);
   }, [adName, adText, selectedGroup, toast]);
+
+  // Guard: Crear anuncios con IA solo para plan Pro - DESPUÉS de todos los hooks
+  if (!canCreateAds) {
+    return <SubscriptionGate />;
+  }
 
   const cleanStepName = STEPS_CONFIG.find(s => s.id === currentStep)?.cleanName || "Paso Desconocido";
 

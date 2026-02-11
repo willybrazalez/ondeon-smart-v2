@@ -503,26 +503,23 @@ const ChannelsPage = ({ setCurrentChannel, currentChannel, isPlaying, togglePlay
     refresh
   } = useChannelsSections();
 
-  // Guard: Verificar acceso a canales (solo trial, basico, pro)
-  if (!canAccessChannelsPage) {
-    logger.dev('🔒 Usuario FREE sin acceso a página de canales');
-    return <SubscriptionGate />;
-  }
-
-  // =========================================================================
-  // SISTEMA REAL DE SECCIONES - Datos desde BD
-  // =========================================================================
-  const USE_MOCK_DATA = false; // Sistema real activado
-  
-  // Fallback a datos mock solo si hay error
-  const useFallbackData = error && MOCK_SECTIONS_BACKUP.length > 0;
-  const sectionsToDisplay = useFallbackData ? MOCK_SECTIONS_BACKUP : sectionsWithChannels;
-
+  // 🔧 CRÍTICO: Todos los hooks deben ejecutarse ANTES de cualquier early return
+  // para evitar "Rendered more hooks than during the previous render" (React #310)
   useEffect(() => {
     if (currentChannel?.id) {
       setSelectedVisualChannel(currentChannel.id);
     }
   }, [currentChannel]);
+
+  // Fallback a datos mock solo si hay error
+  const useFallbackData = error && MOCK_SECTIONS_BACKUP.length > 0;
+  const sectionsToDisplay = useFallbackData ? MOCK_SECTIONS_BACKUP : sectionsWithChannels;
+
+  // Guard: Verificar acceso a canales (solo trial, basico, pro) - DESPUÉS de todos los hooks
+  if (!canAccessChannelsPage) {
+    logger.dev('🔒 Usuario FREE sin acceso a página de canales');
+    return <SubscriptionGate />;
+  }
 
   const handleChannelChange = async (channel) => {
     if (isManualPlaybackActive) {

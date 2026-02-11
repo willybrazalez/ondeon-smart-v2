@@ -18,7 +18,8 @@ const MiniPlayer = ({
   contentVolume = 100,
   onMusicVolumeChange,
   onContentVolumeChange,
-  isMobile = true
+  isMobile = true,
+  embedded = false  // Dentro de un contenedor padre (sin position fixed, sin fondo propio)
 }) => {
   const [showVolume, setShowVolume] = useState(false);
   const volumeRef = useRef(null);
@@ -44,16 +45,13 @@ const MiniPlayer = ({
   const musicBg = `linear-gradient(90deg, #A2D9F7 ${musicVolume}%, rgba(255,255,255,0.08) ${musicVolume}%)`;
   const contentBg = `linear-gradient(90deg, #A2D9F7 ${contentVolume}%, rgba(255,255,255,0.08) ${contentVolume}%)`;
 
+  const wrapperClass = embedded
+    ? 'relative w-full max-w-sm'
+    : `fixed ${isMobile ? 'z-40 left-2.5 right-2.5' : 'z-[51] left-1/2 -translate-x-1/2 w-full max-w-sm px-3'}`;
+  const wrapperStyle = embedded ? {} : { bottom: isMobile ? '54px' : '160px' };
+
   return (
-    <div 
-      ref={volumeRef}
-      className={`fixed ${isMobile ? 'z-40 left-2.5 right-2.5' : 'z-[51] left-1/2 -translate-x-1/2 w-full max-w-sm px-3'}`}
-      style={{ 
-        bottom: isMobile 
-          ? '54px'
-          : '160px'
-      }}
-    >
+    <div ref={volumeRef} className={wrapperClass} style={wrapperStyle}>
       {/* Panel de volumen desplegable */}
       <AnimatePresence>
         {showVolume && (
@@ -112,12 +110,12 @@ const MiniPlayer = ({
         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       >
         <div 
-          className="flex items-center gap-3 px-3.5 py-2 rounded-2xl border border-white/[0.08]"
-          style={{
-            backgroundColor: 'rgba(13, 17, 23, 0.92)',
+          className={`flex items-center gap-3 px-3.5 py-2 ${embedded ? 'rounded-xl' : 'rounded-2xl'}`}
+          style={embedded ? {} : {
+            backgroundColor: 'rgba(10, 14, 20, 0.85)',
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
-            boxShadow: '0 -2px 20px rgba(0,0,0,0.4), 0 0 40px rgba(162, 217, 247, 0.04)'
+            boxShadow: '0 4px 30px rgba(0,0,0,0.5)'
           }}
         >
           {/* Indicador de reproducción animado */}

@@ -63,6 +63,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import MobileLayout from '@/layouts/MobileLayout';
 import BottomNavigation from '@/components/mobile/BottomNavigation';
 import MiniPlayer from '@/components/mobile/MiniPlayer';
+import MobileBottomBar from '@/components/mobile/MobileBottomBar';
 import TrialBanner from '@/components/trial/TrialBanner';
 import UpgradePromptMobile from '@/components/mobile/UpgradePromptMobile';
 
@@ -1608,20 +1609,44 @@ function AppContent() {
           document.body
         )}
 
-        {/* Footer translúcido para evitar superposición (solo con usuario COMPLETAMENTE autenticado, fuera de admin y fuera de dashboards web) */}
+        {/* Footer con "Ondeon Smart Web" - visible debajo de la barra flotante */}
         {isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && !showMobileUI && (
-          <footer className="fixed bottom-0 left-0 right-0 w-full h-32 z-40 pointer-events-none
-            bg-gradient-to-t from-background/80 via-background/40 to-transparent">
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-auto">
-              <p className="text-xs text-muted-foreground/70 text-center">
-                {t('footer.version')} {appVersion ? `v${appVersion}` : 'Web'}
-              </p>
-            </div>
+          <footer className="fixed bottom-3 left-0 right-0 w-full z-[60] pointer-events-none">
+            <p className="text-sm text-white/70 text-center font-medium">
+              {t('footer.version')} {appVersion ? `v${appVersion}` : 'Web'}
+            </p>
           </footer>
         )}
 
-        {/* 📱 MiniPlayer flotante - En móvil en todas las páginas; en web solo fuera de la página reproductor */}
-        {showNavigation && isFullyAuthenticated && !isWebDashboardRoute && (showMobileUI || currentPath !== '/') && (
+        {/* 📱 Barra inferior MÓVIL unificada - MiniPlayer como extensión del menú */}
+        {showNavigation && showMobileUI && (
+          <MobileBottomBar
+            showPlayer={isFullyAuthenticated && !isWebDashboardRoute && !!currentChannel}
+            isPlaying={optimisticPlayState === 'playing' || (optimisticPlayState === null && (djState?.isPlaying || wasPlayingBeforeChange))}
+            onPlayPause={handlePlayPause}
+            onSkipNext={() => nextTrack()}
+            trackTitle={currentTrackInfo?.title || ''}
+            trackArtist={currentTrackInfo?.artist || ''}
+            disabled={!djIsReady || isManualPlaybackActive}
+            musicVolume={musicVolume}
+            contentVolume={contentVolume}
+            onMusicVolumeChange={(v) => {
+              setMusicVolume(v);
+              import('./services/audioPlayerService').then(({ default: audioPlayer }) => {
+                audioPlayer.setMusicVolume(v / 100);
+              });
+            }}
+            onContentVolumeChange={(v) => {
+              setContentVolume(v);
+              import('./services/audioPlayerService').then(({ default: audioPlayer }) => {
+                audioPlayer.setContentVolume(v / 100);
+              });
+            }}
+          />
+        )}
+
+        {/* 📱 MiniPlayer DESKTOP - Flotante, encima de la nav (diseño original) */}
+        {showNavigation && isFullyAuthenticated && !isWebDashboardRoute && !showMobileUI && (currentPath !== '/') && (
           <MiniPlayer
             isPlaying={optimisticPlayState === 'playing' || (optimisticPlayState === null && (djState?.isPlaying || wasPlayingBeforeChange))}
             onPlayPause={handlePlayPause}
@@ -1644,65 +1669,54 @@ function AppContent() {
                 audioPlayer.setContentVolume(v / 100);
               });
             }}
-            isMobile={showMobileUI}
+            isMobile={false}
           />
         )}
 
-        {/* 📱 Navegación inferior MÓVIL - Nuevo diseño tipo app */}
-        {showNavigation && showMobileUI && (
-          <BottomNavigation />
-        )}
-
-        {/* 🖥️ Navegación inferior DESKTOP - Botones flotantes */}
-        {isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && !showMobileUI && (
-          <div 
-            className={`fixed bottom-20 left-1/2 -translate-x-1/2 flex justify-center z-50 transition-all duration-300
-              ${currentPath === '/' 
-                ? 'gap-12' 
-                : 'gap-4 px-6 py-3 rounded-2xl border border-white/10 backdrop-blur-xl'}`}
-            style={currentPath !== '/' ? { 
+        {/* 🖥️ Nav DESKTOP - Barra flotante separada (mismo estilo que MiniPlayer) */}
+        {isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && !showMobileUI && (currentPath !== '/') && (
+          <div
+            className="fixed bottom-20 left-1/2 -translate-x-1/2 flex justify-center gap-4 px-6 py-3 rounded-2xl z-50 backdrop-blur-xl"
+            style={{
               backgroundColor: 'rgba(10, 14, 20, 0.85)',
               boxShadow: '0 4px 30px rgba(0,0,0,0.5)'
-            } : undefined}
+            }}
           >
+            {getNavItemsForRole(hasPermission, t).map((item, index) => (
+              <motion.div key={item.path} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: index * 0.1, type: 'spring', stiffness: 100 }}>
+                <Link
+                  to={item.path}
+                  className={`flex flex-col items-center justify-center rounded-2xl transition-all duration-300 overflow-hidden p-3
+                    ${currentPath === item.path ? 'bg-white/15 text-[#A2D9F7]' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}
+                  style={{ minHeight: '56px', minWidth: '64px' }}
+                >
+                  <item.icon className="w-5 h-5 flex-shrink-0" />
+                  <span className="text-[10px] font-medium text-center leading-tight mt-1">{item.label}</span>
+                </Link>
+              </motion.div>
+            ))}
+          </div>
+        )}
+
+        {/* 🖥️ Navegación DESKTOP - Solo en página reproductor (flotante, sin barra) */}
+        {isFullyAuthenticated && !isAuthRoute && !isAdminRoute && !isWebDashboardRoute && !showMobileUI && (currentPath === '/') && (
+          <div className="fixed bottom-20 left-1/2 -translate-x-1/2 flex justify-center z-50 gap-12">
             <AnimatePresence>
               {getNavItemsForRole(hasPermission, t).map((item, index) => (
-                <motion.div 
-                  key={item.path} 
-                  className={`group relative ${currentPath === '/' ? 'animate-float' : ''}`}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ 
-                    duration: 0.5,
-                    delay: index * 0.1,
-                    type: "spring",
-                    stiffness: 100
-                  }}
-                >
+                <motion.div key={item.path} className="group relative animate-float"
+                  initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: index * 0.1, type: 'spring', stiffness: 100 }}>
                   <Link
                     to={item.path}
                     className={`flex flex-col items-center justify-center rounded-2xl transition-all duration-300 overflow-hidden p-3
-                      ${currentPath === item.path 
-                        ? currentPath === '/' 
-                          ? 'bg-white/10 text-white scale-105' 
-                          : 'bg-white/15 text-[#A2D9F7]'
-                        : currentPath === '/'
-                          ? 'bg-black/3 dark:bg-white/3 text-black/90 dark:text-white/90 hover:bg-black/5 dark:hover:bg-white/5 hover:scale-105'
-                          : 'text-white/60 hover:bg-white/10 hover:text-white'}`}
-                    style={{
-                      minHeight: currentPath === '/' ? '64px' : '56px',
-                      minWidth: currentPath === '/' ? '72px' : '64px',
-                    }}
+                      ${currentPath === item.path ? 'bg-white/10 text-white scale-105' : 'bg-black/3 dark:bg-white/3 text-black/90 dark:text-white/90 hover:bg-black/5 dark:hover:bg-white/5 hover:scale-105'}`}
+                    style={{ minHeight: '64px', minWidth: '72px' }}
                   >
-                    <motion.div
-                      className="flex flex-col items-center justify-center gap-1 w-full"
-                      whileHover={{ scale: currentPath === '/' ? 1.1 : 1.05 }}
-                      transition={{ type: "spring", stiffness: 400, damping: 10 }}
-                    >
-                      <item.icon className={currentPath === '/' ? 'w-6 h-6 flex-shrink-0' : 'w-5 h-5 flex-shrink-0'} />
-                      <span className={currentPath === '/' ? 'text-xs font-medium text-center leading-tight' : 'text-[10px] font-medium text-center leading-tight'}>
-                        {item.label}
-                      </span>
+                    <motion.div className="flex flex-col items-center justify-center gap-1 w-full"
+                      whileHover={{ scale: 1.1 }} transition={{ type: 'spring', stiffness: 400, damping: 10 }}>
+                      <item.icon className="w-6 h-6 flex-shrink-0" />
+                      <span className="text-xs font-medium text-center leading-tight">{item.label}</span>
                     </motion.div>
                   </Link>
                 </motion.div>
