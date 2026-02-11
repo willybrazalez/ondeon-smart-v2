@@ -105,7 +105,7 @@ const MobileBottomBar = ({
                       boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.06)'
                     }}
                   >
-                    <div className="flex items-center gap-3 mb-3">
+                    <div className="flex items-center gap-3 mb-3 py-2 min-h-[44px]" onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()}>
                       <Music size={14} className="text-[#A2D9F7]/60 flex-shrink-0" />
                       <span className="text-[11px] text-white/40 w-16 flex-shrink-0">Música</span>
                       <input
@@ -114,12 +114,13 @@ const MobileBottomBar = ({
                         max="100"
                         value={musicVolume}
                         onChange={(e) => onMusicVolumeChange?.(parseInt(e.target.value))}
-                        className="flex-1 h-1 rounded-full appearance-none cursor-pointer mini-volume-slider"
-                        style={{ background: musicBg }}
+                        onInput={(e) => onMusicVolumeChange?.(parseInt(e.target.value))}
+                        className="flex-1 min-h-[44px] rounded-full appearance-none cursor-pointer mini-volume-slider"
+                        style={{ background: musicBg, touchAction: 'manipulation' }}
                       />
                       <span className="text-[11px] text-white/30 w-8 text-right tabular-nums">{musicVolume}%</span>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 py-2 min-h-[44px]" onTouchStart={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()}>
                       <Mic size={14} className="text-[#A2D9F7]/60 flex-shrink-0" />
                       <span className="text-[11px] text-white/40 w-16 flex-shrink-0">Contenido</span>
                       <input
@@ -128,8 +129,9 @@ const MobileBottomBar = ({
                         max="100"
                         value={contentVolume}
                         onChange={(e) => onContentVolumeChange?.(parseInt(e.target.value))}
-                        className="flex-1 h-1 rounded-full appearance-none cursor-pointer mini-volume-slider"
-                        style={{ background: contentBg }}
+                        onInput={(e) => onContentVolumeChange?.(parseInt(e.target.value))}
+                        className="flex-1 min-h-[44px] rounded-full appearance-none cursor-pointer mini-volume-slider"
+                        style={{ background: contentBg, touchAction: 'manipulation' }}
                       />
                       <span className="text-[11px] text-white/30 w-8 text-right tabular-nums">{contentVolume}%</span>
                     </div>
@@ -275,23 +277,27 @@ const MobileBottomBar = ({
       <style>{`
         .mini-volume-slider {
           -webkit-appearance: none;
-          height: 4px;
-          border-radius: 2px;
+          height: 6px;
+          min-height: 6px;
+          border-radius: 3px;
           outline: none;
+          touch-action: manipulation;
         }
+        /* Thumb más grande (28px) para área táctil móvil - iOS requiere ~44pt mínimo */
         .mini-volume-slider::-webkit-slider-thumb {
           -webkit-appearance: none;
-          width: 14px;
-          height: 14px;
+          width: 28px;
+          height: 28px;
           border-radius: 50%;
           background: #A2D9F7;
           cursor: pointer;
           border: 2px solid rgba(13, 17, 23, 0.9);
           box-shadow: 0 0 6px rgba(162, 217, 247, 0.3);
+          margin-top: -11px;
         }
         .mini-volume-slider::-moz-range-thumb {
-          width: 14px;
-          height: 14px;
+          width: 28px;
+          height: 28px;
           border-radius: 50%;
           background: #A2D9F7;
           cursor: pointer;

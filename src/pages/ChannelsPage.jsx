@@ -571,7 +571,7 @@ const ChannelsPage = ({ setCurrentChannel, currentChannel, isPlaying, togglePlay
   };
 
   return (
-    <div className="w-full pb-8 px-6 md:px-0">
+    <div className="w-full pb-12 md:pb-8 px-6 md:px-0">
       {/* Título visible en mobile */}
       <div className="md:hidden pt-2 pb-4">
         <motion.h1

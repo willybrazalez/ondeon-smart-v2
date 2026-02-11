@@ -1461,10 +1461,11 @@ function AppContent() {
         <div 
           ref={scrollContainerRef}
           data-scroll-container
-          className={`flex-1 min-h-0 relative overflow-y-auto overflow-x-hidden ${(isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? '' : showMobileUI ? '' : 'pt-28'} ${showMobileUI && showNavigation ? (currentChannel ? 'pb-40' : 'pb-28') : ''}`} 
+          className={`flex-1 min-h-0 relative overflow-y-auto overflow-x-hidden ${(isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? '' : showMobileUI ? '' : 'pt-28'}`} 
           style={{ 
             overscrollBehavior: 'none',
-            paddingTop: (isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? 0 : showMobileUI ? `calc(env(safe-area-inset-top, 0px) + ${currentPath === '/' ? 60 : 72}px)` : undefined
+            paddingTop: (isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) ? 0 : showMobileUI ? `calc(env(safe-area-inset-top, 0px) + ${currentPath === '/' ? 60 : 72}px)` : undefined,
+            paddingBottom: showMobileUI && showNavigation ? `calc(${currentChannel ? '13rem' : '9rem'} + env(safe-area-inset-bottom, 0px))` : undefined
           }}
         >
           <main className={`${(isAuthRoute || !isFullyAuthenticated || isAdminRoute || isWebDashboardRoute) 

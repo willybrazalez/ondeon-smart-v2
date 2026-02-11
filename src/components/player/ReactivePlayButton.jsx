@@ -18,26 +18,28 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const sourceRef = useRef(null);
+  const gainNodeRef = useRef(null); // Gain 0 - para no emitir audio del viz
+  const vizAudioRef = useRef(null); // Elemento separado SOLO para visualización - el principal no se conecta (audio en background)
   const dataArrayRef = useRef(null);
   const visualizerAnimationRef = useRef(null);
-  const connectedAudioElementRef = useRef(null); // Referencia al elemento conectado
+  const connectedAudioElementRef = useRef(null); // Referencia al main element (para sync)
   const lastTrackRef = useRef(null); // Referencia a la última canción
   const shouldContinueDrawingRef = useRef(false); // Flag para controlar el loop
   const [visualizerKey, setVisualizerKey] = useState(0); // Key para forzar reinicio del visualizador
 
-  // 📱 Resumir AudioContext cuando la página vuelve visible (desbloqueo de pantalla)
-  // El navegador suspende el AudioContext al bloquear; al desbloquear debe reanudarse
+  // 📱 Resumir AudioContext del visualizador cuando la página vuelve visible
+  // (El audio principal NO pasa por el contexto → sigue sonando con pantalla bloqueada)
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) return;
-      const ctx = audioContextRef.current || audioElement?._visualizerContext;
+      const ctx = audioContextRef.current;
       if (ctx?.state === 'suspended') {
-        ctx.resume().then(() => logger.dev('📱 AudioContext reanudado tras desbloqueo')).catch(() => {});
+        ctx.resume().then(() => logger.dev('📱 AudioContext viz reanudado tras desbloqueo')).catch(() => {});
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [audioElement]);
+  }, []);
 
   // 🔍 Vigilar cambios en audioElement o su src para forzar reinicio del visualizador
   useEffect(() => {
@@ -158,92 +160,52 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
       lastTrackRef.current = currentTrack;
     }
 
-    // Configurar Web Audio API - Solo conexión inicial
+    // Configurar Web Audio API - Usar elemento VIZ separado (NUNCA conectar el audio principal)
+    // El audio principal reproduce directo → sigue sonando con pantalla bloqueada
     const setupAudioConnection = () => {
       try {
         // Crear contexto de audio si no existe
         if (!audioContextRef.current) {
           audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
           analyserRef.current = audioContextRef.current.createAnalyser();
-          analyserRef.current.fftSize = 128; // 64 barras de frecuencia
+          analyserRef.current.fftSize = 128;
           analyserRef.current.smoothingTimeConstant = 0.8;
+          gainNodeRef.current = audioContextRef.current.createGain();
+          gainNodeRef.current.gain.value = 0; // Sin salida - solo análisis
         }
 
-        // 🔧 CRÍTICO: Detectar si el audioElement cambió (nuevo canal = nuevo elemento)
-        const audioElementChanged = audioElement && connectedAudioElementRef.current && connectedAudioElementRef.current !== audioElement;
-        
-        if (audioElementChanged) {
-          logger.dev('🔄 Elemento de audio cambió - reconectando visualizador...');
-          
-          // Desconectar el anterior
-          if (sourceRef.current) {
-            try {
-              sourceRef.current.disconnect();
-              logger.dev('🧹 Fuente de audio anterior desconectada');
-            } catch (error) {
-              logger.warn('⚠️ Error al desconectar fuente anterior:', error);
-            }
-            sourceRef.current = null;
-          }
-        }
-        
-        // Conectar fuente de audio si no existe o si cambió el elemento
-        if (audioElement && (!sourceRef.current || audioElementChanged)) {
-          logger.dev('🔌 Conectando visualizador al elemento de audio...');
-          
-          // Crear fuente de audio
-          try {
-            sourceRef.current = audioContextRef.current.createMediaElementSource(audioElement);
-            // 🔧 Guardar referencias en el propio elemento para reutilizarlas
-            try { 
-              audioElement._visualizerSource = sourceRef.current;
-              audioElement._visualizerAnalyser = analyserRef.current;
-              audioElement._visualizerContext = audioContextRef.current;
-            } catch (_) {}
-            sourceRef.current.connect(analyserRef.current);
-            analyserRef.current.connect(audioContextRef.current.destination);
-            connectedAudioElementRef.current = audioElement;
-            logger.dev('✅ Visualizador conectado correctamente');
-          } catch (error) {
-            // Si ya existe un MediaElementSource para este elemento
-            if (error.name === 'InvalidStateError') {
-              logger.dev('ℹ️ El elemento de audio ya tiene una fuente conectada - reutilizando sin modificar');
-              // Reutilizar TODO el setup existente guardado en el elemento
-              const existingSource = audioElement._visualizerSource;
-              const existingAnalyser = audioElement._visualizerAnalyser;
-              const existingContext = audioElement._visualizerContext;
-              
-              if (existingSource && existingAnalyser && existingContext) {
-                // 🔧 CRÍTICO: Solo actualizar refs sin crear nada nuevo
-                sourceRef.current = existingSource;
-                analyserRef.current = existingAnalyser;
-                audioContextRef.current = existingContext;
-                
-                // Regenerar dataArray si es necesario
-                if (!dataArrayRef.current) {
-                  const bufferLength = analyserRef.current.frequencyBinCount;
-                  dataArrayRef.current = new Uint8Array(bufferLength);
-                }
-                
-                connectedAudioElementRef.current = audioElement;
-                logger.dev('♻️ Setup completo reutilizado - sin crear nuevas conexiones');
-              } else {
-                logger.warn('⚠️ Fuente existente pero faltan referencias guardadas');
-                sourceRef.current = existingSource;
-                connectedAudioElementRef.current = audioElement;
-              }
-            } else {
-              throw error;
-            }
-          }
-        } else if (audioElement && sourceRef.current && connectedAudioElementRef.current === audioElement) {
-          // El elemento es el mismo y ya está conectado - perfecto, el visualizador sigue funcionando
-          if (trackChanged) {
-            logger.dev('✅ Visualizador sigue conectado - Nueva canción:', currentTrack);
-          }
+        if (!audioElement?.src) return;
+
+        // Crear/actualizar elemento viz (muted, solo para análisis)
+        if (!vizAudioRef.current) {
+          vizAudioRef.current = new Audio();
+          vizAudioRef.current.muted = true;
+          vizAudioRef.current.crossOrigin = 'anonymous';
         }
 
-        // Crear array para datos de frecuencia
+        const viz = vizAudioRef.current;
+        if (viz.src !== audioElement.src) {
+          viz.src = audioElement.src;
+        }
+        viz.currentTime = audioElement.currentTime;
+
+        if (audioElement.paused) {
+          viz.pause();
+        } else {
+          viz.play().catch(() => {});
+        }
+
+        // Conectar VIZ (no el principal) al contexto
+        if (!sourceRef.current) {
+          logger.dev('🔌 Conectando visualizador al elemento VIZ (audio principal libre para background)');
+          sourceRef.current = audioContextRef.current.createMediaElementSource(viz);
+          sourceRef.current.connect(analyserRef.current);
+          analyserRef.current.connect(gainNodeRef.current);
+          gainNodeRef.current.connect(audioContextRef.current.destination);
+        }
+
+        connectedAudioElementRef.current = audioElement;
+
         if (analyserRef.current) {
           const bufferLength = analyserRef.current.frequencyBinCount;
           dataArrayRef.current = new Uint8Array(bufferLength);
@@ -252,6 +214,30 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
         logger.warn('⚠️ Error en setupAudioConnection:', error);
       }
     };
+
+    // Sincronizar viz con el audio principal (play/pause/currentTime)
+    let syncCleanup = () => {};
+    const main = audioElement;
+    if (main && vizAudioRef.current) {
+      const viz = vizAudioRef.current;
+      const onPlay = () => { try { viz.currentTime = main.currentTime; viz.play().catch(() => {}); } catch (_) {} };
+      const onPause = () => { try { viz.pause(); } catch (_) {} };
+      const onTimeUpdate = () => { try { if (Math.abs(viz.currentTime - main.currentTime) > 0.5) viz.currentTime = main.currentTime; } catch (_) {} };
+
+      main.addEventListener('play', onPlay);
+      main.addEventListener('pause', onPause);
+      main.addEventListener('timeupdate', onTimeUpdate);
+
+      if (main.src && main.src !== viz.src) viz.src = main.src;
+      viz.currentTime = main.currentTime;
+      if (!main.paused) viz.play().catch(() => {}); else viz.pause();
+
+      syncCleanup = () => {
+        main.removeEventListener('play', onPlay);
+        main.removeEventListener('pause', onPause);
+        main.removeEventListener('timeupdate', onTimeUpdate);
+      };
+    }
 
     // Iniciar conexión
     setupAudioConnection();
@@ -389,11 +375,10 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
     draw();
 
     return () => {
-      // Detener el loop al desmontar
+      syncCleanup();
+      try { vizAudioRef.current?.pause(); } catch (_) {}
       shouldContinueDrawingRef.current = false;
-      
       if (visualizerAnimationRef.current) {
-        logger.dev('🧹 Limpiando loop de visualización en cleanup...');
         cancelAnimationFrame(visualizerAnimationRef.current);
         visualizerAnimationRef.current = null;
       }
