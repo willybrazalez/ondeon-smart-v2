@@ -93,6 +93,51 @@ class AudioPlayerService {
   }
 
   /**
+   * Configurar Media Session API para controles en pantalla bloqueada
+   * Permite que play/pause desde la pantalla de bloqueo funcione correctamente
+   */
+  setupMediaSessionActionHandlers() {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.setActionHandler('play', () => {
+        logger.dev('📱 Media Session: play desde pantalla bloqueada');
+        this.play();
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        logger.dev('📱 Media Session: pause desde pantalla bloqueada');
+        this.pause();
+      });
+      logger.dev('✅ Media Session action handlers configurados (play/pause pantalla bloqueada)');
+    } catch (e) {
+      logger.warn('⚠️ Error configurando Media Session handlers:', e);
+    }
+  }
+
+  /**
+   * Recuperar reproducción cuando la página vuelve a ser visible (desbloqueo)
+   * El navegador puede pausar el audio al bloquear; al desbloquear intentamos reanudar
+   */
+  setupVisibilityRecovery() {
+    if (typeof document === 'undefined') return;
+    const handleVisibilityChange = () => {
+      if (document.hidden) return;
+      // Página visible de nuevo (usuario desbloqueó) - intentar recuperar audio
+      try {
+        const activePlayer = this.getActivePlayer();
+        if (this.isPlaying && activePlayer && activePlayer.paused) {
+          logger.dev('📱 visibilitychange: Reanudando audio tras desbloqueo');
+          this.play();
+        }
+      } catch (e) {
+        logger.warn('⚠️ Error recuperando audio en visibilitychange:', e);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    // Guardar para posible cleanup (no crítico en SPA)
+    this._visibilityRecoveryHandler = handleVisibilityChange;
+  }
+
+  /**
    * Obtener el reproductor activo actual
    */
   getActivePlayer() {
@@ -2558,6 +2603,8 @@ const lazyAudioPlayer = new Proxy({}, {
     if (!inst._initialized) {
       logger.dev(`🎵 AudioPlayerService inicializado - Crossfade: ${CROSSFADE_ENABLED ? 'ACTIVADO' : 'DESACTIVADO'}, Interrupciones: ${INTERRUPTION_CROSSFADE_ENABLED ? 'ACTIVADO' : 'DESACTIVADO'}`);
       inst.startWatchdog();
+      inst.setupMediaSessionActionHandlers();
+      inst.setupVisibilityRecovery();
       inst._initialized = true;
     }
     

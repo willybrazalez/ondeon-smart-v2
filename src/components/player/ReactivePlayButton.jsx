@@ -25,6 +25,20 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
   const shouldContinueDrawingRef = useRef(false); // Flag para controlar el loop
   const [visualizerKey, setVisualizerKey] = useState(0); // Key para forzar reinicio del visualizador
 
+  // 📱 Resumir AudioContext cuando la página vuelve visible (desbloqueo de pantalla)
+  // El navegador suspende el AudioContext al bloquear; al desbloquear debe reanudarse
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) return;
+      const ctx = audioContextRef.current || audioElement?._visualizerContext;
+      if (ctx?.state === 'suspended') {
+        ctx.resume().then(() => logger.dev('📱 AudioContext reanudado tras desbloqueo')).catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [audioElement]);
+
   // 🔍 Vigilar cambios en audioElement o su src para forzar reinicio del visualizador
   useEffect(() => {
     // 🔧 Mantener vigilancia activa si está reproduciendo O si hay reproducción manual (música de fondo)
