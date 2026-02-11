@@ -1,0 +1,232 @@
+{
+  "name": "Indicativos Automáticos - Ondeon v2",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "indicativos",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "indicativos-webhook"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, message: 'Procesando indicativos' }) }}",
+        "options": {}
+      },
+      "id": "response-ok",
+      "name": "Responder OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [208, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extraer datos del body del webhook\nconst body = $input.first().json.body;\n\nconst establecimiento = body.establecimiento || body.establecimiento_nuevo || 'Mi Establecimiento';\nconst usuario_id = body.usuario_id;\n\n// Validar que tenemos los datos necesarios\nif (!usuario_id) {\n  throw new Error('Falta usuario_id');\n}\n\nreturn [{\n  json: {\n    usuario_id,\n    establecimiento\n  }\n}];"
+      },
+      "id": "extraer-datos",
+      "name": "Extraer Datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Borrar indicativos antiguos del usuario\n-- 1. Borrar contenidos asociados a indicativos anteriores\nDELETE FROM contenidos WHERE id IN (\n  SELECT unnest(contenido_ids) \n  FROM indicativos_generados \n  WHERE usuario_id = '{{ $json.usuario_id }}'\n);\n\n-- 2. Borrar registros de indicativos_generados\nDELETE FROM indicativos_generados WHERE usuario_id = '{{ $json.usuario_id }}';\n\n-- 3. Borrar programacion_contenidos de programaciones de indicativos\nDELETE FROM programacion_contenidos WHERE programacion_id IN (\n  SELECT id FROM programaciones \n  WHERE descripcion LIKE 'Indicativos Automáticos%' \n  AND usuario_id = '{{ $json.usuario_id }}'\n);\n\n-- 4. Borrar programaciones de indicativos\nDELETE FROM programaciones \nWHERE descripcion LIKE 'Indicativos Automáticos%' \nAND usuario_id = '{{ $json.usuario_id }}';\n\n-- Devolver datos para el siguiente nodo\nSELECT '{{ $json.usuario_id }}' as usuario_id, '{{ $json.establecimiento }}' as establecimiento;",
+        "options": {}
+      },
+      "id": "borrar-antiguos",
+      "name": "Borrar Indicativos Antiguos",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [608, 0],
+      "credentials": {
+        "postgres": {
+          "id": "I1wsGQdEYLn2pjZi",
+          "name": "Supabase ONDEON"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Crear 3 items, uno por cada texto de indicativo\nconst input = $input.first().json;\nconst establecimiento = input.establecimiento;\nconst usuario_id = input.usuario_id;\n\nconst textos = [\n  `Estás escuchando la radio de ${establecimiento}`,\n  `${establecimiento}, Radio`,\n  `Bienvenido a ${establecimiento}, radio`\n];\n\n// Devolver 3 items separados\nreturn textos.map((texto, index) => ({\n  json: {\n    usuario_id,\n    establecimiento,\n    texto,\n    index\n  }\n}));"
+      },
+      "id": "crear-textos",
+      "name": "Crear Textos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.elevenlabs.io/v1/text-to-speech/fRDnLmEYnsOOldlrmhg5",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"{{ $json.texto }}\",\n  \"model_id\": \"eleven_multilingual_v2\",\n  \"voice_settings\": {\n    \"stability\": 0.76,\n    \"similarity_boost\": 0.50,\n    \"style\": 0.47,\n    \"use_speaker_boost\": true\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "elevenlabs-tts",
+      "name": "ElevenLabs TTS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1008, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "FlDbAbZAIhxWw8iK",
+          "name": "ElevenLabs"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combinar datos binarios de ElevenLabs con datos originales de Crear Textos\nconst items = $input.all();\nconst textosItems = $('Crear Textos').all();\n\nreturn items.map((item, i) => {\n  const textoData = textosItems[i].json;\n  return {\n    json: {\n      usuario_id: textoData.usuario_id,\n      establecimiento: textoData.establecimiento,\n      texto: textoData.texto,\n      index: textoData.index,\n      ttsBase64: item.binary.data.data\n    }\n  };\n});"
+      },
+      "id": "combinar-datos",
+      "name": "Combinar Datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://chskbn3tnfgmcnntxmjmswz6740kjlrx.lambda-url.eu-north-1.on.aws/",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"ttsBase64\": \"{{ $json.ttsBase64 }}\",\n  \"backgroundMusicKey\": \"indicativos/musica/fondo-{{ ($json.index % 3) + 1 }}.mp3\",\n  \"outputKey\": \"indicativos/{{ $json.usuario_id }}/indicativo-{{ $json.index + 1 }}.mp3\",\n  \"ttsVolume\": 1.0,\n  \"musicVolume\": 0.2\n}",
+        "options": {}
+      },
+      "id": "lambda-ffmpeg",
+      "name": "Lambda FFmpeg Mixer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1408, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preservar datos originales junto con la respuesta de Lambda\nconst items = $input.all();\nconst datosItems = $('Combinar Datos').all();\n\nreturn items.map((item, i) => {\n  const datos = datosItems[i].json;\n  return {\n    json: {\n      outputUrl: item.json.outputUrl,\n      outputKey: item.json.outputKey,\n      duration: item.json.duration || 10,\n      usuario_id: datos.usuario_id,\n      establecimiento: datos.establecimiento,\n      index: datos.index\n    }\n  };\n});"
+      },
+      "id": "preservar-datos",
+      "name": "Preservar Datos Lambda",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Insertar contenido en la tabla contenidos\n-- Estructura real: nombre, tipo, url_s3, s3_key, duracion_segundos, usuario_id\nINSERT INTO contenidos (\n  nombre,\n  tipo,\n  url_s3,\n  s3_key,\n  duracion_segundos,\n  usuario_id,\n  generado_ia,\n  activo\n) VALUES (\n  'Indicativo - {{ $json.establecimiento }} - #{{ $json.index + 1 }}',\n  'indicativo',\n  '{{ $json.outputUrl }}',\n  '{{ $json.outputKey }}',\n  {{ $json.duration }},\n  '{{ $json.usuario_id }}',\n  true,\n  true\n) RETURNING id, '{{ $json.usuario_id }}' as usuario_id, '{{ $json.establecimiento }}' as establecimiento, {{ $json.index }} as index;",
+        "options": {}
+      },
+      "id": "guardar-contenidos",
+      "name": "Guardar en Contenidos",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1808, 0],
+      "credentials": {
+        "postgres": {
+          "id": "I1wsGQdEYLn2pjZi",
+          "name": "Supabase ONDEON"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Agrupar todos los items y devolver solo uno con los datos del último\n// Esto asegura que 'Crear Programación' solo se ejecute UNA vez\nconst items = $input.all();\n\nif (items.length === 0) {\n  return [];\n}\n\n// Obtener datos del último item\nconst lastItem = items[items.length - 1];\n\n// Recopilar todos los IDs de contenidos insertados\nconst contenidoIds = items.map(item => item.json.id);\n\nreturn [{\n  json: {\n    usuario_id: lastItem.json.usuario_id,\n    establecimiento: lastItem.json.establecimiento,\n    contenido_ids: contenidoIds,\n    total_indicativos: items.length\n  }\n}];"
+      },
+      "id": "agrupar-programacion",
+      "name": "Agrupar para Programación",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Crear programación para los indicativos (solo 1 vez)\n-- Estructura real: tipo='frecuencia', modo_audio='interrumpir'\nWITH nueva_prog AS (\n  INSERT INTO programaciones (\n    descripcion,\n    tipo,\n    frecuencia_minutos,\n    modo_audio,\n    estado,\n    fecha_inicio,\n    usuario_id\n  ) VALUES (\n    'Indicativos Automáticos - {{ $json.establecimiento }}',\n    'frecuencia',\n    30,\n    'interrumpir',\n    'activo',\n    CURRENT_DATE,\n    '{{ $json.usuario_id }}'\n  ) RETURNING id\n),\ncontenidos_ids AS (\n  SELECT id, ROW_NUMBER() OVER (ORDER BY created_at DESC) as rn\n  FROM contenidos\n  WHERE tipo = 'indicativo'\n  AND usuario_id = '{{ $json.usuario_id }}'\n  ORDER BY created_at DESC\n  LIMIT 3\n),\ncontenidos_insertados AS (\n  INSERT INTO programacion_contenidos (programacion_id, contenido_id, orden, activo)\n  SELECT \n    (SELECT id FROM nueva_prog),\n    c.id,\n    c.rn,\n    true\n  FROM contenidos_ids c\n  RETURNING programacion_id, contenido_id\n)\nINSERT INTO indicativos_generados (\n  usuario_id,\n  establecimiento_nombre,\n  contenido_ids,\n  programacion_id,\n  estado\n) \nSELECT\n  '{{ $json.usuario_id }}',\n  '{{ $json.establecimiento }}',\n  ARRAY(SELECT contenido_id FROM contenidos_insertados),\n  (SELECT id FROM nueva_prog),\n  'completado'\nRETURNING id, programacion_id, estado;",
+        "options": {}
+      },
+      "id": "crear-programacion",
+      "name": "Crear Programación",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2208, 0],
+      "credentials": {
+        "postgres": {
+          "id": "I1wsGQdEYLn2pjZi",
+          "name": "Supabase ONDEON"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{"node": "Responder OK", "type": "main", "index": 0}]]
+    },
+    "Responder OK": {
+      "main": [[{"node": "Extraer Datos", "type": "main", "index": 0}]]
+    },
+    "Extraer Datos": {
+      "main": [[{"node": "Borrar Indicativos Antiguos", "type": "main", "index": 0}]]
+    },
+    "Borrar Indicativos Antiguos": {
+      "main": [[{"node": "Crear Textos", "type": "main", "index": 0}]]
+    },
+    "Crear Textos": {
+      "main": [[{"node": "ElevenLabs TTS", "type": "main", "index": 0}]]
+    },
+    "ElevenLabs TTS": {
+      "main": [[{"node": "Combinar Datos", "type": "main", "index": 0}]]
+    },
+    "Combinar Datos": {
+      "main": [[{"node": "Lambda FFmpeg Mixer", "type": "main", "index": 0}]]
+    },
+    "Lambda FFmpeg Mixer": {
+      "main": [[{"node": "Preservar Datos Lambda", "type": "main", "index": 0}]]
+    },
+    "Preservar Datos Lambda": {
+      "main": [[{"node": "Guardar en Contenidos", "type": "main", "index": 0}]]
+    },
+    "Guardar en Contenidos": {
+      "main": [[{"node": "Agrupar para Programación", "type": "main", "index": 0}]]
+    },
+    "Agrupar para Programación": {
+      "main": [[{"node": "Crear Programación", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-29T23:50:00.000Z",
+  "versionId": "v2"
+}

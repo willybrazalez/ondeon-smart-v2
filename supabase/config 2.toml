@@ -1,0 +1,26 @@
+# Supabase Edge Functions Configuration
+# verify_jwt = false permite llamadas sin JWT válido (funciones públicas)
+
+[functions.stripe-checkout]
+verify_jwt = false
+
+[functions.stripe-portal]
+verify_jwt = false
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.send-email]
+verify_jwt = false
+
+[functions.generate-ad]
+verify_jwt = false
+
+[functions.cleanup-pendientes]
+verify_jwt = false
+
+[functions.login]
+verify_jwt = false
+
+[functions.change-password]
+verify_jwt = false
