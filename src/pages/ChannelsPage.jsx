@@ -278,14 +278,15 @@ const ChannelRow = ({ title, channels, selectedChannel, onChannelSelect, isManua
         </button>
       )}
 
-      {/* Contenedor con scroll horizontal táctil */}
+      {/* Contenedor con scroll horizontal táctil - touch-action permite scroll vertical (página) y horizontal (carousel) */}
       <div 
         ref={scrollRef}
-        className="flex gap-4 overflow-x-auto scrollbar-hide md:px-6 pb-2 snap-x snap-mandatory touch-pan-x"
+        className="flex gap-4 overflow-x-auto scrollbar-hide md:px-6 pb-2 snap-x snap-mandatory"
         style={{ 
           scrollbarWidth: 'none', 
           msOverflowStyle: 'none',
-          WebkitOverflowScrolling: 'touch'
+          WebkitOverflowScrolling: 'touch',
+          touchAction: 'pan-x pan-y'
         }}
       >
         {channels.map((channel, index) => (
@@ -404,6 +405,7 @@ const ChannelCard = ({ channel, index, isSelected, onSelect, isManualPlaybackAct
       transition={{ delay: index * 0.03, duration: 0.2 }}
       className={`flex-shrink-0 w-[42vw] max-w-[180px] min-w-[140px] sm:w-[175px] md:w-[190px] lg:w-[210px] snap-start ${isManualPlaybackActive ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer group'}`}
       onClick={handleClick}
+      style={{ touchAction: 'pan-x pan-y' }}
     >
       {/* Imagen - Proporción 4:5 con bordes rectos */}
       <div 

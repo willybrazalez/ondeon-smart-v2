@@ -388,6 +388,8 @@ function AppContent() {
   
   // 📜 Ref para el contenedor principal de scroll
   const scrollContainerRef = useRef(null);
+  // 📱 Header móvil: transparente hasta hacer scroll
+  const [headerScrolled, setHeaderScrolled] = useState(false);
   
   // 📱 Detectar dispositivo móvil
   const { isMobile, isTablet, isTouchDevice } = useIsMobile();
@@ -412,15 +414,24 @@ function AppContent() {
   
   // 📜 Resetear scroll al navegar entre páginas
   React.useEffect(() => {
-    // Usar el ref directamente - más confiable que querySelector
+    setHeaderScrolled(false);
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
     }
-    // Resetear el scroll del window y document
     window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
   }, [currentPath]);
+
+  // 📱 Header móvil: detectar scroll para cambiar transparencia
+  const isMobileOrTablet = isMobile || isTablet;
+  React.useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el || !isMobileOrTablet) return;
+    const handleScroll = () => setHeaderScrolled(el.scrollTop > 16);
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [isMobileOrTablet, currentPath]);
   
   // 🔧 Usar currentPath (normalizado) para todas las comparaciones de rutas
   const isAuthRoute = currentPath === '/login' ||
@@ -1324,15 +1335,18 @@ function AppContent() {
         {/* 📱 Header - Versión móvil moderna optimizada para iOS */}
         {/* 📱 Header móvil - Página reproductor: logo + SMART + nombre establecimiento (acceso a /cuenta) */}
         {showHeader && showMobileUI && currentPath === '/' && (
-          <header className="fixed top-0 left-0 right-0 z-[60] safe-area-top h-14 flex items-center justify-between px-4 border-b border-white/5 bg-[#0a0e14]/80 backdrop-blur-sm" style={{ transform: 'translateZ(0)' }}>
+          <header 
+            className={`fixed top-0 left-0 right-0 z-[60] safe-area-top h-14 flex items-center justify-between px-4 transition-all duration-300 ${headerScrolled ? 'bg-[#0a0e14]/95 backdrop-blur-md border-b border-white/5' : 'bg-transparent border-b border-transparent'}`} 
+            style={{ transform: 'translateZ(0)' }}
+          >
             <div className="flex items-center gap-3">
               <img
                 src="/assets/icono-ondeon.png"
                 alt="Ondeón Smart"
-                className="h-10 w-10 flex-shrink-0"
+                className="h-12 w-12 flex-shrink-0"
                 onError={(e) => { e.target.style.display = 'none'; }}
               />
-              <span className="text-base tracking-[0.2em] font-light text-[#A2D9F7]">SMART</span>
+              <span className="text-xl tracking-[0.2em] font-light text-[#A2D9F7]">SMART</span>
             </div>
             <Link
               to="/cuenta"
@@ -1348,16 +1362,19 @@ function AppContent() {
         )}
         {/* 📱 Header móvil - Resto de páginas: logo + SMART + establecimiento + trial (más tamaño) */}
         {showHeader && showMobileUI && currentPath !== '/' && (
-          <header className="fixed top-0 left-0 right-0 z-[60] safe-area-top h-16 flex items-center px-4 border-b border-white/5 bg-[#0a0e14]/80 backdrop-blur-sm" style={{ transform: 'translateZ(0)' }}>
+          <header 
+            className={`fixed top-0 left-0 right-0 z-[60] safe-area-top h-16 flex items-center px-4 transition-all duration-300 ${headerScrolled ? 'bg-[#0a0e14]/95 backdrop-blur-md border-b border-white/5' : 'bg-transparent border-b border-transparent'}`} 
+            style={{ transform: 'translateZ(0)' }}
+          >
             <div className="flex items-center justify-between w-full gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <img
                   src="/assets/icono-ondeon.png"
                   alt="Ondeón Smart"
-                  className="h-10 w-10 flex-shrink-0"
+                  className="h-12 w-12 flex-shrink-0"
                   onError={(e) => { e.target.style.display = 'none'; }}
                 />
-                <span className="text-base tracking-[0.2em] font-light text-[#A2D9F7] truncate">SMART</span>
+                <span className="text-xl tracking-[0.2em] font-light text-[#A2D9F7] truncate">SMART</span>
               </div>
               <Link
                 to="/cuenta"

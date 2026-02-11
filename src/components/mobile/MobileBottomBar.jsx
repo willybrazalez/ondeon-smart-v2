@@ -221,7 +221,7 @@ const MobileBottomBar = ({
 
       {/* Navegación - Misma pieza que MiniPlayer, sin línea entre ellos */}
       <nav 
-        className="flex items-center justify-around h-[58px] max-w-md mx-auto px-1 flex-shrink-0"
+        className="flex items-center justify-between h-[58px] w-full max-w-lg mx-auto px-6 flex-shrink-0"
         style={{ backgroundColor: '#0a0e14' }}
       >
         {navItems.map((item) => {
@@ -248,7 +248,7 @@ const MobileBottomBar = ({
             <Link
               key={item.path}
               to={item.path}
-              className="relative flex flex-col items-center justify-end min-w-[60px] pb-2"
+              className="relative flex flex-col items-center justify-end min-w-[52px] pb-2"
             >
               <motion.div
                 animate={{ scale: isActive ? 1.1 : 1, y: isActive ? -2 : 0 }}
