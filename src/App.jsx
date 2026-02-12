@@ -1024,14 +1024,8 @@ function AppContent() {
         const state = audioPlayer.getState();
         const currentSrc = state.audioElement?.src;
         
-        // 🔧 CRÍTICO: NO actualizar audioElement si hay contenido programado reproduciéndose
-        // Esto previene que la reconexión del visualizador interrumpa el contenido
-        if (state.isPlayingScheduledContent) {
-          // logger.dev('⏸️ Saltando actualización de audioElement - contenido programado en reproducción');
-          return;
-        }
-        
-        // Actualizar SOLO si el elemento cambió O si el src cambió
+        // Actualizar si tenemos elemento y (cambió el elemento O cambió el src)
+        // Ya no bloqueamos en isPlayingScheduledContent: el viz usa elemento separado, no afecta reproducción
         if (state.audioElement && (state.audioElement !== lastAudioElementRef || currentSrc !== lastAudioSrc)) {
           if (state.audioElement !== lastAudioElementRef) {
             logger.dev('🎵 App.jsx - audioElement cambió (nueva instancia)');
