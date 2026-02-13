@@ -9,6 +9,7 @@
 
 import logger from '../lib/logger.js';
 import { convertToCloudFrontUrl } from '../lib/cloudfrontUrls.js';
+import audioNormalization from './audioNormalizationService.js';
 
 // 🔧 CONFIGURACIÓN GLOBAL - Para debuggear problemas de crossfade
 const CROSSFADE_ENABLED = false; // ⚠️ Desactivado temporalmente para testing
@@ -251,6 +252,17 @@ class AudioPlayerService {
             window.dispatchEvent(new CustomEvent('audio-ready', { detail: { songTitle } }));
           }
         } catch (e) {}
+        
+        // 🔊 Conectar reproductor de música al analizador de loudness (para referencia de normalización)
+        try {
+          if (audioNormalization.isSupported && !audioNormalization.connectedSources.has(audio)) {
+            await audioNormalization.initialize();
+            audioNormalization.connectMusicPlayer(audio);
+          }
+        } catch (e) {
+          logger.dev('ℹ️ No se pudo conectar analizador de loudness (no crítico):', e.message);
+        }
+        
         logger.dev('🎵 Canción cargada en reproductor único (sin crossfade):', songTitle);
         
       } else {
@@ -1035,6 +1047,14 @@ class AudioPlayerService {
   async play() {
     let activePlayer;
     
+    // 🔊 Inicializar AudioContext para normalización (requiere interacción del usuario en iOS)
+    // Se hace aquí porque play() es el primer punto de interacción garantizado
+    if (audioNormalization.isSupported && !audioNormalization.isInitialized) {
+      audioNormalization.initialize().catch(e => 
+        logger.dev('ℹ️ AudioContext no inicializado (no crítico):', e.message)
+      );
+    }
+    
     // 🔧 LÓGICA SIMPLIFICADA sin crossfade
     if (!CROSSFADE_ENABLED) {
       activePlayer = this.playerA;
@@ -1759,24 +1779,50 @@ class AudioPlayerService {
         };
         
         // 🔧 iOS: hacer fade out SUAVE sin pausar el reproductor
-        // Pausar aquí provoca que iOS detenga el pipeline al cambiar el src
-        try {
-          const currentVol = contentPlayer.volume;
-          const steps = 40;
-          const stepMs = 50; // ~2000ms (más largo y suave)
-          for (let i = 0; i < steps; i++) {
-            const next = Math.max(0, currentVol - (currentVol / steps) * (i + 1));
-            mainPlayer.volume = next;
-            await new Promise(r => setTimeout(r, stepMs));
+        // 🔊 Si hay musicGainNode, hacer fade via GainNode (más preciso y permite amplificar después)
+        if (audioNormalization.musicGainNode && audioNormalization.isInitialized) {
+          try {
+            const ctx = audioNormalization.audioContext;
+            const now = ctx.currentTime;
+            audioNormalization.musicGainNode.gain.setValueAtTime(audioNormalization.musicGainNode.gain.value, now);
+            audioNormalization.musicGainNode.gain.linearRampToValueAtTime(0.001, now + 2.0); // 2s fade out
+            await new Promise(r => setTimeout(r, 2000));
+            logger.dev('🔊 Fade out completado via musicGainNode');
+          } catch (e) {
+            logger.warn('⚠️ Fade out via GainNode falló, usando fallback:', e);
+            // Fallback: fade out clásico via audioElement.volume
+            try {
+              const currentVol = contentPlayer.volume;
+              const steps = 40;
+              const stepMs = 50;
+              for (let i = 0; i < steps; i++) {
+                mainPlayer.volume = Math.max(0, currentVol - (currentVol / steps) * (i + 1));
+                await new Promise(r => setTimeout(r, stepMs));
+              }
+              mainPlayer.volume = 0;
+            } catch (e2) {
+              logger.warn('⚠️ Fade out clásico también falló:', e2);
+            }
           }
-          mainPlayer.volume = 0;
-        } catch (e) {
-          logger.warn('⚠️ No se pudo hacer fade-out suave en iOS:', e);
+        } else {
+          // Sin Web Audio API: fade out clásico
+          try {
+            const currentVol = contentPlayer.volume;
+            const steps = 40;
+            const stepMs = 50;
+            for (let i = 0; i < steps; i++) {
+              mainPlayer.volume = Math.max(0, currentVol - (currentVol / steps) * (i + 1));
+              await new Promise(r => setTimeout(r, stepMs));
+            }
+            mainPlayer.volume = 0;
+          } catch (e) {
+            logger.warn('⚠️ No se pudo hacer fade-out suave en iOS:', e);
+          }
         }
         
         // Cambiar a contenido programado
         contentPlayer.src = contentUrl;
-        contentPlayer.volume = 0; // Empezar en silencio
+        contentPlayer.volume = 1.0; // 🔊 Volumen al máximo - el GainNode controla el volumen real
         
         // Reproducir (ya está "unlocked" por interacción previa)
         await contentPlayer.play();
@@ -1786,6 +1832,7 @@ class AudioPlayerService {
         logger.dev('📱 Creando nuevo reproductor para contenido');
         // Crear nuevo reproductor (para clicks manuales)
         contentPlayer = new Audio();
+        contentPlayer.crossOrigin = 'anonymous'; // Requerido para Web Audio API
         contentPlayer.preload = 'auto';
         contentPlayer.volume = 0; // Empezar en silencio para fade in
         contentPlayer.src = contentUrl;
@@ -1806,9 +1853,48 @@ class AudioPlayerService {
         }
       }
       
-      // 2. Fade in del contenido (mientras se reproduce)
+      // 2. Fade in del contenido + normalización de loudness
       const targetVolume = this.contentVolume * this.masterVolume;
-      this.fadeInAudio(contentPlayer, targetVolume); // Fade in en paralelo
+      
+      // 🔊 NORMALIZACIÓN: Intentar normalizar el contenido con Web Audio API
+      if (audioNormalization.isSupported && audioNormalization.isInitialized) {
+        if (!shouldReuseMainPlayer) {
+          // Caso normal: reproductor nuevo → cadena completa con GainNode
+          try {
+            const normResult = await audioNormalization.normalizeContent(contentPlayer, targetVolume);
+            if (normResult.gainNode) {
+              await audioNormalization.fadeInContent(normResult.gainNode, targetVolume, 800);
+              logger.dev('🔊 Contenido normalizado con Web Audio API (reproductor nuevo)');
+            } else {
+              this.fadeInAudio(contentPlayer, targetVolume);
+            }
+          } catch (normError) {
+            logger.warn('⚠️ Error en normalización, usando fade clásico:', normError.message);
+            this.fadeInAudio(contentPlayer, targetVolume);
+          }
+        } else {
+          // 🍎 iOS reutilizando player: usar musicGainNode para normalizar
+          // El player ya está conectado al AudioContext via la cadena de música
+          // musicGainNode puede amplificar más allá de 1.0 (imposible con audioElement.volume)
+          try {
+            const activated = await audioNormalization.activateReusedPlayerNormalization(contentPlayer, targetVolume);
+            if (activated) {
+              logger.dev('🍎🔊 Contenido normalizado via musicGainNode (iOS)');
+            } else {
+              // Fallback: fade-in clásico
+              contentPlayer.volume = 0;
+              this.fadeInAudio(contentPlayer, targetVolume);
+            }
+          } catch (normError) {
+            logger.warn('⚠️ Error en normalización iOS, usando fade clásico:', normError.message);
+            contentPlayer.volume = 0;
+            this.fadeInAudio(contentPlayer, targetVolume);
+          }
+        }
+      } else {
+        // Web Audio no soportado o no inicializado: fade-in clásico
+        this.fadeInAudio(contentPlayer, targetVolume);
+      }
 
       // 🔧 MediaSession: Mostrar “Contenido”
       try {
@@ -1831,6 +1917,14 @@ class AudioPlayerService {
         const handleContentEnd = async () => {
           logger.dev('✅ Contenido finalizado', {songEndedBefore, shouldRestore: !songEndedBefore});
           
+          // 🔊 Limpiar normalización del contenido
+          if (shouldReuseMainPlayer) {
+            // iOS: desactivar normalización del player reutilizado (restaura musicGainNode a 1.0)
+            await audioNormalization.deactivateReusedPlayerNormalization();
+          } else {
+            audioNormalization.disconnectPlayer(contentPlayer);
+          }
+          
           // 🔓 Desbloquear controles inmediatamente cuando termina el contenido
           if (typeof window.__clearManualPlayback === 'function') {
             try {
@@ -1851,7 +1945,6 @@ class AudioPlayerService {
             
             // Limpiar el reproductor de contenido
             if (shouldReuseMainPlayer && this.savedSongForRestore) {
-              // Limpiar el guardado sin restaurar
               this.savedSongForRestore = null;
               this.activeContentPlayer = null;
             } else {
@@ -1870,16 +1963,6 @@ class AudioPlayerService {
           if (shouldReuseMainPlayer && this.savedSongForRestore) {
             logger.dev('🍎 iOS: Restaurando canción original en reproductor principal');
             
-            // 🔧 No pausar: solo preparar volumen para reanudar
-            try {
-              const steps = 10;
-              for (let i = 0; i < steps; i++) {
-                contentPlayer.volume = Math.max(0, contentPlayer.volume - (contentPlayer.volume / steps));
-                await new Promise(r => setTimeout(r, 30));
-              }
-              contentPlayer.volume = 0;
-            } catch (e) {}
-            
             // Restaurar la canción original
             contentPlayer.src = this.savedSongForRestore.src;
             contentPlayer.currentTime = this.savedSongForRestore.currentTime;
@@ -1889,21 +1972,37 @@ class AudioPlayerService {
             this.savedSongForRestore = null;
             this.activeContentPlayer = null;
             
-            // Reproducir y hacer fade in (sin pausar en iOS)
+            // Reproducir y hacer fade in
             // 🔧 CRÍTICO: SIEMPRE reproducir, pero respetar el mute (volumen 0)
             try {
+              // 🔊 Consultar volumen actual de música EN TIEMPO REAL
+              const volumenActual = this.musicVolume * this.masterVolume;
+              
+              // 🔊 CRÍTICO: Empezar con el audioElement en el volumen final
+              // pero el musicGainNode en 0 — así el fade-in es suave via GainNode
+              contentPlayer.volume = volumenActual;
+              
               await contentPlayer.play();
               this.isPlaying = true;
               this.isPaused = false;
               
-              // 🔧 CRÍTICO: Consultar this.musicVolume EN TIEMPO REAL, no el guardado
-              const volumenActual = this.musicVolume * this.masterVolume;
-              
-              if (volumenActual > 0) {
+              // 🔊 musicGainNode está en ~0 (dejado así por deactivateReusedPlayerNormalization)
+              // Hacer fade-in SUAVE y LARGO via musicGainNode (3 segundos, curva lineal)
+              if (volumenActual > 0 && audioNormalization.musicGainNode && audioNormalization.isInitialized) {
+                const ctx = audioNormalization.audioContext;
+                const now = ctx.currentTime;
+                const fadeDuration = 3.0; // 3 segundos — transición suave
+                audioNormalization.musicGainNode.gain.setValueAtTime(0.001, now);
+                // Usar linearRamp (no exponential) para una subida más gradual y natural
+                audioNormalization.musicGainNode.gain.linearRampToValueAtTime(1.0, now + fadeDuration);
+                await new Promise(r => setTimeout(r, fadeDuration * 1000));
+                logger.dev(`✅ Canción original restaurada con fade in suave (iOS/GainNode, ${fadeDuration}s) al ${(volumenActual * 100).toFixed(0)}%`);
+              } else if (volumenActual > 0) {
+                // Fallback sin Web Audio: fade-in clásico via audioElement.volume
+                contentPlayer.volume = 0;
                 await this.fadeInAudio(contentPlayer, volumenActual);
                 logger.dev(`✅ Canción original restaurada con fade in (iOS) al ${(volumenActual * 100).toFixed(0)}%`);
               } else {
-                // Mantener volumen en 0 sin hacer fade in
                 contentPlayer.volume = 0;
                 logger.dev('🔇 Música en MUTE - canción continúa sin sonido (iOS)');
               }
@@ -1944,6 +2043,13 @@ class AudioPlayerService {
         };
 
         const handleContentError = async (error) => {
+          // 🔊 Limpiar normalización del contenido en caso de error
+          if (shouldReuseMainPlayer) {
+            await audioNormalization.deactivateReusedPlayerNormalization();
+          } else {
+            audioNormalization.disconnectPlayer(contentPlayer);
+          }
+          
           // ✅ FIX: Extraer información detallada del error de audio
           const audioElement = error.target || error;
           const mediaError = audioElement.error;
@@ -2005,19 +2111,25 @@ class AudioPlayerService {
             this.savedSongForRestore = null;
             this.activeContentPlayer = null;
             
-            // Reproducir y hacer fade in
-            // 🔧 CRÍTICO: SIEMPRE reproducir, pero respetar el mute (volumen 0)
             try {
+              const volumenActual = this.musicVolume * this.masterVolume;
+              contentPlayer.volume = volumenActual;
               await contentPlayer.play();
               
-              // 🔧 CRÍTICO: Consultar this.musicVolume EN TIEMPO REAL, no el guardado
-              const volumenActual = this.musicVolume * this.masterVolume;
-              
-              if (volumenActual > 0) {
+              // 🔊 Fade in suave via musicGainNode (3 segundos, lineal)
+              if (volumenActual > 0 && audioNormalization.musicGainNode && audioNormalization.isInitialized) {
+                const ctx = audioNormalization.audioContext;
+                const now = ctx.currentTime;
+                const fadeDuration = 3.0;
+                audioNormalization.musicGainNode.gain.setValueAtTime(0.001, now);
+                audioNormalization.musicGainNode.gain.linearRampToValueAtTime(1.0, now + fadeDuration);
+                await new Promise(r => setTimeout(r, fadeDuration * 1000));
+                logger.dev(`✅ Canción restaurada tras error al ${(volumenActual * 100).toFixed(0)}%`);
+              } else if (volumenActual > 0) {
+                contentPlayer.volume = 0;
                 await this.fadeInAudio(contentPlayer, volumenActual);
                 logger.dev(`✅ Canción restaurada tras error al ${(volumenActual * 100).toFixed(0)}%`);
               } else {
-                // Mantener volumen en 0 sin hacer fade in
                 contentPlayer.volume = 0;
                 logger.dev('🔇 Música en MUTE - canción restaurada sin sonido (error path)');
               }
@@ -2242,8 +2354,16 @@ class AudioPlayerService {
     
     // Si hay un contenido reproduciéndose, actualizar su volumen inmediatamente
     if (this.activeContentPlayer) {
-      this.activeContentPlayer.volume = this.contentVolume * this.masterVolume;
-      logger.dev('🔊 Volumen aplicado al contenido activo:', this.activeContentPlayer.volume);
+      const newVolume = this.contentVolume * this.masterVolume;
+      
+      // 🔊 Si la normalización está activa, actualizar via GainNode
+      if (audioNormalization.contentGainNode && audioNormalization.isInitialized) {
+        audioNormalization.setContentVolume(newVolume);
+        logger.dev('🔊 Volumen aplicado al contenido activo (via GainNode):', newVolume);
+      } else {
+        this.activeContentPlayer.volume = newVolume;
+        logger.dev('🔊 Volumen aplicado al contenido activo:', newVolume);
+      }
     }
     
     logger.dev('🎤 Volumen contenido actualizado:', {
@@ -2315,16 +2435,39 @@ class AudioPlayerService {
 
       // 4. Crear nuevo reproductor temporal para el contenido
       const contentPlayer = new Audio();
+      contentPlayer.crossOrigin = 'anonymous'; // Requerido para Web Audio API
       contentPlayer.preload = 'auto';
-      contentPlayer.volume = this.contentVolume * this.masterVolume;
       
       // Guardar referencia al reproductor activo
       this.activeContentPlayer = contentPlayer;
       
+      // 🔊 NORMALIZACIÓN: Intentar conectar normalización con Web Audio API
+      let normalizationActive = false;
+      const targetContentVolume = this.contentVolume * this.masterVolume;
+      
+      if (audioNormalization.isSupported) {
+        try {
+          const normResult = await audioNormalization.normalizeContent(contentPlayer, targetContentVolume);
+          if (normResult.gainNode) {
+            normalizationActive = true;
+            // Con normalización: el volumen se controla via GainNode, audioElement.volume = 1.0
+            logger.dev('🔊 Normalización activa para contenido (background mode)');
+          }
+        } catch (normError) {
+          logger.warn('⚠️ Error en normalización (background), usando volumen directo:', normError.message);
+        }
+      }
+      
+      // Si no hay normalización, usar volumen directo
+      if (!normalizationActive) {
+        contentPlayer.volume = targetContentVolume;
+      }
+      
       logger.dev('🔊 Volumen del contenido configurado:', {
         contentVolume: this.contentVolume,
         masterVolume: this.masterVolume,
-        finalVolume: this.contentVolume * this.masterVolume,
+        finalVolume: targetContentVolume,
+        normalizationActive,
         volumenReal: contentPlayer.volume
       });
 
@@ -2332,6 +2475,9 @@ class AudioPlayerService {
       return new Promise((resolve) => {
         const handleContentEnd = async () => {
           logger.dev('✅ Contenido finalizado, restaurando volumen de música');
+          
+          // 🔊 Limpiar normalización del contenido
+          audioNormalization.disconnectPlayer(contentPlayer);
           
           // 🔓 Desbloquear controles cuando termina el contenido
           if (typeof window.__clearManualPlayback === 'function') {
@@ -2379,6 +2525,9 @@ class AudioPlayerService {
         };
 
         const handleContentError = async (error) => {
+          // 🔊 Limpiar normalización del contenido en caso de error
+          audioNormalization.disconnectPlayer(contentPlayer);
+          
           // ✅ FIX: Extraer información detallada del error de audio
           const audioElement = error.target || error;
           const mediaError = audioElement.error;

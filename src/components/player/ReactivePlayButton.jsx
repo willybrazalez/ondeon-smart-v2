@@ -49,10 +49,14 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) return;
-      // Reanudar AudioContext del visualizador
+      // Reanudar AudioContext del visualizador (puede ser compartido con normalization service)
       const ctx = audioContextRef.current;
       if (ctx?.state === 'suspended') {
-        ctx.resume().then(() => logger.dev('📱 AudioContext reanudado tras desbloqueo')).catch(() => {});
+        ctx.resume().then(() => {
+          logger.dev('📱 AudioContext reanudado tras desbloqueo');
+          // Forzar reinicio del visualizador al volver
+          setVisualizerKey(prev => prev + 1);
+        }).catch(() => {});
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -79,6 +83,7 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
 
   // 🎨 Audio Visualizer - Inicialización y dibujado
   useEffect(() => {
+    let cancelled = false;
     shouldContinueDrawingRef.current = false;
     if (visualizerAnimationRef.current) {
       cancelAnimationFrame(visualizerAnimationRef.current);
@@ -97,9 +102,53 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
     const trackChanged = currentTrack && lastTrackRef.current !== currentTrack;
     if (trackChanged) lastTrackRef.current = currentTrack;
 
-    // Configurar Web Audio API - Conectar audio PRINCIPAL para datos reales de frecuencia
-    const setupAudioConnection = () => {
+    // Configurar Web Audio API - Reutilizar conexión del audioNormalizationService
+    // IMPORTANTE: createMediaElementSource solo puede llamarse UNA vez por elemento.
+    // El audioNormalizationService ya lo llama, así que conectamos nuestro analyser
+    // al sourceNode que ya existe en ese servicio.
+    const setupAudioConnection = async () => {
       try {
+        // Intentar obtener los nodos del servicio de normalización
+        const { default: audioNormService } = await import('../../services/audioNormalizationService');
+        const sharedNodes = audioNormService.getMusicAudioNodes();
+        
+        if (sharedNodes) {
+          const { audioContext, sourceNode } = sharedNodes;
+          audioContextRef.current = audioContext;
+          sourceRef.current = sourceNode;
+          
+          // Crear nuestro propio AnalyserNode para el visualizador (fftSize más pequeño para barras)
+          if (!analyserRef.current || analyserRef.current.context !== audioContext) {
+            analyserRef.current = audioContext.createAnalyser();
+            analyserRef.current.fftSize = 128;
+            analyserRef.current.smoothingTimeConstant = 0.8;
+          }
+          
+          // Conectar: sourceNode → nuestro analyser (sin conectar a destination, ya lo hace el normService)
+          // Verificar si ya está conectado comparando el elemento
+          if (connectedAudioElementRef.current !== effectiveAudioElement) {
+            try {
+              sourceNode.connect(analyserRef.current);
+              // NO conectar analyser a destination - el normService ya conecta source → su analyser → destination
+              connectedAudioElementRef.current = effectiveAudioElement;
+              logger.dev('✅ Visualizador conectado al grafo de audio compartido');
+            } catch (connectError) {
+              // Puede fallar si ya está conectado, lo cual está bien
+              connectedAudioElementRef.current = effectiveAudioElement;
+              logger.dev('♻️ Visualizador ya conectado al grafo compartido');
+            }
+          }
+          
+          dataArrayRef.current = new Uint8Array(analyserRef.current.frequencyBinCount);
+          
+          // Reanudar AudioContext si está suspendido
+          if (audioContext.state === 'suspended') {
+            audioContext.resume().catch(() => {});
+          }
+          return;
+        }
+        
+        // Fallback: si el normalization service aún no conectó, crear conexión propia
         if (!audioContextRef.current) {
           audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
           analyserRef.current = audioContextRef.current.createAnalyser();
@@ -107,53 +156,24 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
           analyserRef.current.smoothingTimeConstant = 0.8;
         }
 
-        const audioElementChanged = effectiveAudioElement && connectedAudioElementRef.current && connectedAudioElementRef.current !== effectiveAudioElement;
-
-        if (audioElementChanged) {
-          if (sourceRef.current) {
-            try { sourceRef.current.disconnect(); } catch (_) {}
-            sourceRef.current = null;
-          }
-        }
-
-        if (effectiveAudioElement && (!sourceRef.current || audioElementChanged)) {
+        if (effectiveAudioElement && connectedAudioElementRef.current !== effectiveAudioElement) {
           try {
             sourceRef.current = audioContextRef.current.createMediaElementSource(effectiveAudioElement);
-            try {
-              effectiveAudioElement._visualizerSource = sourceRef.current;
-              effectiveAudioElement._visualizerAnalyser = analyserRef.current;
-              effectiveAudioElement._visualizerContext = audioContextRef.current;
-            } catch (_) {}
             sourceRef.current.connect(analyserRef.current);
             analyserRef.current.connect(audioContextRef.current.destination);
             connectedAudioElementRef.current = effectiveAudioElement;
-            logger.dev('✅ Visualizador conectado al audio principal');
+            logger.dev('✅ Visualizador conectado directamente (fallback)');
           } catch (error) {
             if (error.name === 'InvalidStateError') {
-              // Reutilizar setup existente
-              const existing = effectiveAudioElement._visualizerSource;
-              const existingAnalyser = effectiveAudioElement._visualizerAnalyser;
-              const existingContext = effectiveAudioElement._visualizerContext;
-              if (existing && existingAnalyser && existingContext) {
-                sourceRef.current = existing;
-                analyserRef.current = existingAnalyser;
-                audioContextRef.current = existingContext;
-                if (!dataArrayRef.current) {
-                  dataArrayRef.current = new Uint8Array(analyserRef.current.frequencyBinCount);
-                }
-                connectedAudioElementRef.current = effectiveAudioElement;
-                logger.dev('♻️ Setup de visualizador reutilizado');
-              } else {
-                sourceRef.current = existing;
-                connectedAudioElementRef.current = effectiveAudioElement;
-              }
-            } else {
-              throw error;
+              // El elemento ya fue conectado por otro servicio, reintentar con nodos compartidos
+              logger.dev('⏳ Elemento ya conectado por otro servicio, reintentando en 500ms...');
+              setTimeout(() => setVisualizerKey(prev => prev + 1), 500);
+              return;
             }
+            throw error;
           }
         }
 
-        // Reanudar AudioContext si está suspendido
         if (audioContextRef.current?.state === 'suspended') {
           audioContextRef.current.resume().catch(() => {});
         }
@@ -165,8 +185,6 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
         logger.warn('⚠️ Error en setupAudioConnection:', error);
       }
     };
-
-    setupAudioConnection();
 
     // Función de dibujado
     const draw = () => {
@@ -237,12 +255,20 @@ const ReactivePlayButton = ({ isPlaying, onPlayPause, disabled, bpm, blockMessag
       visualizerAnimationRef.current = requestAnimationFrame(draw);
     };
 
-    if (!analyserRef.current || !dataArrayRef.current || !canvasRef.current) return;
+    const startDrawing = () => {
+      if (!analyserRef.current || !dataArrayRef.current || !canvasRef.current) return;
+      shouldContinueDrawingRef.current = true;
+      draw();
+    };
 
-    shouldContinueDrawingRef.current = true;
-    draw();
+    // setupAudioConnection es async, iniciar dibujo después de que se resuelva
+    setupAudioConnection().then(() => {
+      if (cancelled) return; // el efecto fue limpiado antes de que la promesa se resolviera
+      startDrawing();
+    });
 
     return () => {
+      cancelled = true;
       shouldContinueDrawingRef.current = false;
       if (visualizerAnimationRef.current) {
         cancelAnimationFrame(visualizerAnimationRef.current);
